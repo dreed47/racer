@@ -93,10 +93,41 @@ func _process(_delta: float) -> bool:
 	_check(panel.is_open(), "Tab key opens it again")
 	panel.close()
 
+	# Clicking outside the panel closes it, but asks first if there are unsaved changes.
+	panel.toggle()
+	root.push_input(_click(Vector2(100, 500)))
+	_check(not panel.is_open() and not paused, "click outside the panel closes it")
+	panel.toggle()
+	root.push_input(_click(panel._panel.get_global_rect().get_center()))
+	_check(panel.is_open() and not panel.is_asking(), "click inside the panel keeps it open")
+	panel.set_value("wheelbase", 2.2)
+	root.push_input(_click(Vector2(100, 500)))
+	_check(panel.is_asking(), "click outside with unsaved changes asks first")
+	panel.back_to_panel()
+	_check(_save_button(panel) != null, "panel has a Save button")
+	_save_button(panel).pressed.emit()
+	_check(not panel.is_open() and not panel.has_unsaved_changes(), "Save button saves and closes")
+
 	DirAccess.remove_absolute(scratch)
 	print("PANEL CHECK " + ("FAILED" if _failed else "PASSED"))
 	quit(1 if _failed else 0)
 	return true
+
+
+func _click(where: Vector2) -> InputEventMouseButton:
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = where
+	click.global_position = where
+	return click
+
+
+func _save_button(panel) -> Button:
+	for button in panel._panel.find_children("*", "Button", true, false):
+		if button.text == "Save":
+			return button
+	return null
 
 
 func _tab_key() -> InputEventKey:

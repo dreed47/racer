@@ -16,9 +16,10 @@ godot --path .      # run the game
 - `car/`: car physics and setup. `car_look.gd` puts the 3D model from `car/roadster/` on the car. `sound/` makes the engine, tire and wind sound. Only the tire skid is a recording.
 - `track/`: places to drive. `track.gd` is what every track offers. `circuit.gd` builds a loop from straights and arcs in code. `blender_track.gd` loads a track made in Blender.
 - `tools/blender/`: Python scripts that build and export Blender tracks and the car model.
-- `modes/`: game modes. `time_trial/` has the lap timer, best-lap file, lap display and ghost car. `save_paths.gd` keeps tests away from your saved files.
+- `modes/`: game modes. `time_trial/` has the lap timer, best-lap file, lap display, course map and ghost car. `save_paths.gd` keeps tests away from your saved files.
 - `drivers/`: what controls a car: the player and the AI driver. `racing_line.gd` works out the AI's line and speeds. `learning_level.gd` sets how much the game helps you, and `track_guide.gd` draws the line and brake boards on the road.
 - `camera/`: chase camera.
+- `hud/`: the gauges.
 - `debug/`: on-screen readouts and the tuning panel.
 - `tests/`: headless checks.
 
@@ -84,6 +85,18 @@ godot --headless --path . -s tests/levels_check.gd
 
 Checks the learning levels: anti-spin catches a flick, ABS stops the wheels locking, the Noob speed limit and auto-brake, the line and brake boards, the level saving, the AI skill following the level, the Level row in the tuning panel, and the best lap keeping its level. Writes only to a temp folder.
 
+```sh
+godot --headless --path . -s tests/map_check.gd
+```
+
+Checks the course map: the track fits the box, north is up, your arrow sits on the road, and the on/off key works. Touches no files.
+
+```sh
+godot --headless --path . -s tests/dashboard_check.gd
+```
+
+Checks the gauges: where they sit on a 1920 x 1080 screen, the dial scales, the shift light, the gear display, and F3 for the text readout. Touches no files.
+
 ## Time trial
 
 The game starts on Ridge (`track/ridge/ridge.tscn`), a 2.6 km track with hills, a blind crest and a downhill hairpin.
@@ -100,9 +113,30 @@ On Ridge:
 - Hidden checkpoints stop shortcuts. Miss one and the lap doesn't count.
 - Grass has less grip and slows the car.
 - Each track keeps its own best lap.
-- Y puts you back at the start and cancels the lap.
+- Y puts you back at the start in 1st gear and cancels the lap.
 - After each checkpoint and lap, the gap to your best shows in green (faster) or red (slower).
 - Best laps are kept in `user://lap_records.cfg`. On Linux that's `~/.local/share/godot/app_userdata/Racer/`. Delete the file to clear them.
+
+## Gauges
+
+Two dials sit at the bottom centre of the screen.
+
+- The left dial is the rev counter, in thousands of rpm. Green is the normal range, yellow is high and red is the redline.
+- The SHIFT light above its middle turns yellow when it's nearly time to shift up and flashes red when it's time now. It stays off in top gear.
+- The right dial is your speed, 0 to 240 km/h. The exact speed shows as a number in its middle.
+- The big number between them is your gear: N for neutral and R for reverse.
+- The red and green bars show how hard you're pressing the brake and the gas.
+- F3 shows the old text readout in the top-left, with the numbers for each wheel. It's hidden at the start.
+
+## Course map
+
+A map of the track sits in the top-right corner so you can see where you are and which turns come next.
+
+- North is always up, so the track keeps the same shape and you learn it.
+- You're the white arrow. It points the way your car faces.
+- The red mark is the start line.
+- The AI car shows as a yellow dot while the AI is on.
+- N or D-pad left turns the map on and off. A note on screen says which.
 
 ## Ghost car
 
@@ -170,8 +204,8 @@ To change the volume, select `CarSound` in `main.tscn` in the editor and set `Vo
 1. Press Tab or View. The game pauses and the setup panel opens.
 1. Move between rows with the D-pad or arrow keys. Left and right change a value by 1 % of its range. The mouse works too.
 1. Changes apply at once. Close the panel and drive to feel them.
-1. Save writes to `car/roadster.tres`. Revert goes back to the last save.
-1. Tab or View again closes the panel. With unsaved changes it asks first: Save, Drive without saving, Undo changes, or Back (B or Tab).
+1. Save writes to `car/roadster.tres` and closes the panel. Revert goes back to the last save.
+1. Tab, View or a click outside the panel closes it. With unsaved changes it asks first: Save, Drive without saving, Undo changes, or Back (B or Tab).
 
 Useful knobs:
 
@@ -198,6 +232,8 @@ Useful knobs:
 | Mute sound | D-pad down      | M             |
 | Ghost car on/off | D-pad up  | G             |
 | AI car on/off | D-pad right    | I             |
+| Map on/off | D-pad left        | N             |
+| Text readout on/off | –       | F3            |
 
 Units are metric: metres, kilograms, newtons. Physics runs at 120 Hz with Jolt.
 

@@ -1,12 +1,21 @@
 extends CanvasLayer
 ## On-screen numbers for tuning: driver inputs, engine, and each wheel's suspension and tire.
+## Hidden at the start; F3 shows and hides it.
 
 @export var car: Car
 
 @onready var _label: Label = $Label
 
 
+func _ready() -> void:
+	visible = false
+
+
 func _process(_delta: float) -> void:
+	if Input.is_action_just_pressed("toggle_readout") and get_viewport().gui_get_focus_owner() == null:
+		visible = not visible
+	if not visible:
+		return
 	if car == null or car.wheels.is_empty():
 		return
 	var w := car.wheels

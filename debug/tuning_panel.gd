@@ -1,7 +1,8 @@
 extends CanvasLayer
 ## In-game tuning panel. Tab or the View button opens it and pauses the game.
 ## Shows a slider for every number in the car's setup, grouped like the setup file.
-## Changes apply at once; Save writes them to save_path.
+## Changes apply at once; Save writes them to save_path and closes the panel.
+## Clicking outside the panel closes it too.
 ## Closing with unsaved changes asks first: save, keep driving on them unsaved, or undo them.
 
 @export var car: Car
@@ -47,6 +48,15 @@ func _input(event: InputEvent) -> void:
 	elif event.is_action_pressed("tune_panel"):
 		toggle()
 		get_viewport().set_input_as_handled()
+	elif _panel.visible and _is_click_outside(event):
+		toggle()
+		get_viewport().set_input_as_handled()
+
+
+func _is_click_outside(event: InputEvent) -> bool:
+	var click := event as InputEventMouseButton
+	return click != null and click.pressed and click.button_index == MOUSE_BUTTON_LEFT \
+			and not _panel.get_global_rect().has_point(click.position)
 
 
 ## Opens the panel, or closes it. With unsaved changes, closing asks first.
@@ -231,7 +241,7 @@ func _build() -> void:
 
 	var buttons := HBoxContainer.new()
 	outer.add_child(buttons)
-	for pair in [["Save", save], ["Revert", revert], ["Close", toggle]]:
+	for pair in [["Save", _save_and_close], ["Revert", revert], ["Close", toggle]]:
 		var button := Button.new()
 		button.text = pair[0]
 		button.pressed.connect(pair[1])

@@ -22,10 +22,13 @@ func _initialize() -> void:
 func _physics_process(_delta: float) -> bool:
 	_ticks += 1
 	if _ticks == 1:
+		_car.drivetrain.gear = 3  # Back to start should put it in 1st.
 		_car.place_at(_circuit.get_node("Spawn").global_transform)
 		_check_circuit()
 		_check_timer()
 		_check_records()
+	if _ticks == 3:
+		_check(_car.drivetrain.gear == 1, "back to start puts the car in 1st gear")
 	if _ticks < int(HZ * 1.5):
 		return false
 	_check_car_on_road()

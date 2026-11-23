@@ -11,6 +11,8 @@ const NEUTRAL := Color(1.0, 1.0, 1.0)
 @export var time_trial: TimeTrial
 ## Optional. Shows a note when the ghost is turned on or off.
 @export var ghost: GhostCar
+## Optional. Shows a note when the map is turned on or off.
+@export var map: CourseMap
 ## Optional. Shows a note when the learning level changes.
 @export var level: LearningLevel
 
@@ -38,6 +40,8 @@ func _ready() -> void:
 	timer.lap_voided.connect(func(): _show_note("Missed a checkpoint: lap not counted", SLOWER))
 	if ghost != null:
 		ghost.toggled.connect(_on_ghost_toggled)
+	if map != null:
+		map.toggled.connect(func(on): _show_note("Map on" if on else "Map off", NEUTRAL))
 	if level != null:
 		level.changed.connect(func(_l): _show_note("Level: %s" % level.level_name(), NEUTRAL))
 

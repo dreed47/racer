@@ -18,6 +18,14 @@ func _init(setup: CarSetup) -> void:
 	engine_spin = rpm_to_spin(setup.idle_rpm)
 
 
+## Back in 1st gear with the engine at idle, as on a fresh start.
+func reset() -> void:
+	gear = 1
+	engine_spin = rpm_to_spin(_setup.idle_rpm)
+	clutch_locked = false
+	_shift_timer = 0.0
+
+
 static func rpm_to_spin(rpm: float) -> float:
 	return rpm * TAU / 60.0
 

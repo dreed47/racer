@@ -97,7 +97,7 @@ func shift(direction: int) -> void:
 	drivetrain.shift(direction)
 
 
-## Moves the car to a place, stopped. Takes effect on the next physics step.
+## Moves the car to a place, stopped, in 1st gear. Takes effect on the next physics step.
 func place_at(where: Transform3D) -> void:
 	_place_target = where
 	_place_pending = true
@@ -252,5 +252,6 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	state.angular_velocity = Vector3.ZERO
 	for wheel in wheels:
 		wheel.spin = 0.0
+	drivetrain.reset()
 	reset_physics_interpolation.call_deferred()
 	placed.emit.call_deferred()

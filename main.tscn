@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
 [ext_resource type="PackedScene" path="res://track/ridge/ridge.tscn" id="2"]
@@ -14,6 +14,8 @@
 [ext_resource type="Script" path="res://modes/time_trial/ghost_car.gd" id="12"]
 [ext_resource type="Script" path="res://drivers/ai_driver.gd" id="13"]
 [ext_resource type="Script" path="res://drivers/learning_level.gd" id="14"]
+[ext_resource type="Script" path="res://modes/time_trial/course_map.gd" id="15"]
+[ext_resource type="Script" path="res://hud/dashboard.gd" id="16"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1")
@@ -54,11 +56,18 @@ track = NodePath("../Track")
 script = ExtResource("12")
 time_trial = NodePath("../TimeTrial")
 
-[node name="LapHud" type="CanvasLayer" parent="." node_paths=PackedStringArray("time_trial", "ghost", "level")]
+[node name="CourseMap" type="CanvasLayer" parent="." node_paths=PackedStringArray("track", "car", "ai")]
+script = ExtResource("15")
+track = NodePath("../Track")
+car = NodePath("../Car")
+ai = NodePath("../AiDriver")
+
+[node name="LapHud" type="CanvasLayer" parent="." node_paths=PackedStringArray("time_trial", "ghost", "level", "map")]
 script = ExtResource("9")
 time_trial = NodePath("../TimeTrial")
 ghost = NodePath("../GhostCar")
 level = NodePath("../LearningLevel")
+map = NodePath("../CourseMap")
 
 [node name="ChaseCamera" type="Camera3D" parent="." node_paths=PackedStringArray("target")]
 script = ExtResource("5")
@@ -66,6 +75,10 @@ target = NodePath("../Car")
 current = true
 
 [node name="CarReadout" parent="." node_paths=PackedStringArray("car") instance=ExtResource("6")]
+car = NodePath("../Car")
+
+[node name="Dashboard" type="CanvasLayer" parent="." node_paths=PackedStringArray("car")]
+script = ExtResource("16")
 car = NodePath("../Car")
 
 [node name="GripDisplay" type="CanvasLayer" parent="." node_paths=PackedStringArray("car")]
