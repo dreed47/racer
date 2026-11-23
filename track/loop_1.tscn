@@ -1,0 +1,52 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://track/circuit.gd" id="1"]
+[ext_resource type="Shader" path="res://track/grid.gdshader" id="2"]
+
+[sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 3
+tonemap_mode = 2
+
+[sub_resource type="ShaderMaterial" id="grass"]
+shader = ExtResource("2")
+shader_parameter/base_color = Color(0.2, 0.34, 0.16, 1)
+shader_parameter/line_color = Color(0.27, 0.42, 0.22, 1)
+shader_parameter/cell_size = 10.0
+shader_parameter/line_width = 0.08
+
+[sub_resource type="BoxShape3D" id="ground_shape"]
+size = Vector3(1400, 1, 1400)
+
+[sub_resource type="PlaneMesh" id="ground_mesh"]
+material = SubResource("grass")
+size = Vector2(1400, 1400)
+
+[node name="Loop1" type="Node3D"]
+script = ExtResource("1")
+pieces = PackedVector2Array(320, 0, 30, 90, 80, 0, 40, -40, 40, 80, 40, -40, 40, 0, 120, 90, 60, 0, 15, 180, 60, 0, 35, -180, 220, 0, 40, 90, 202.85, 0, 30, 90)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, 0, -0.5, -0.354, 0.707, -0.612, 0.354, 0.707, 0.612, 0, 50, 0)
+shadow_enabled = true
+
+[node name="Grass" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 186, -0.02, -170)
+metadata/grip = 0.6
+metadata/rolling_resistance = 0.06
+
+[node name="Collision" type="CollisionShape3D" parent="Grass"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+shape = SubResource("ground_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Grass"]
+mesh = SubResource("ground_mesh")

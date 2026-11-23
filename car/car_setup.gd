@@ -94,3 +94,10 @@ extends Resource
 @export_group("Aero")
 @export_range(0.2, 1, 0.01) var drag_coefficient := 0.4
 @export_range(1.2, 3, 0.05) var frontal_area := 1.8
+
+@export_group("Driver aids")
+## Cuts engine power when a rear wheel spins faster than the road, so the back stays put.
+@export var traction_control := true
+## Wheelspin allowed before power is cut, as a share of the tire's peak slip ratio.
+## 1 lets the tire reach full grip; lower is safer, higher allows more slide.
+@export_range(0.5, 3, 0.05) var traction_slip := 1.0

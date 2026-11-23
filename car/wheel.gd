@@ -23,6 +23,9 @@ var slip_ratio := 0.0
 var slip_angle := 0.0
 ## Slip compared with the grip peak: below 1 gripping, 1 at the limit, above 1 sliding.
 var slip_level := 0.0
+## Grip of the ground under the tire, times the tire's own grip. Road is 1.
+## Read from the "grip" metadata on whatever the ray hits.
+var surface_grip := 1.0
 
 var _contact := Vector3.ZERO
 var _forward := Vector3.ZERO
@@ -31,6 +34,7 @@ var _long_speed := 0.0
 var _lat_speed := 0.0
 var _force_sum := Vector2.ZERO
 var _angle := 0.0
+var _surface_rolling := 0.0  # Extra rolling resistance from the ground, such as grass.
 
 @onready var _visual: Node3D = $Visual
 
@@ -54,6 +58,9 @@ func update_suspension(car: RigidBody3D, setup: CarSetup) -> void:
 		return
 
 	_contact = hit.position
+	var ground: Object = hit.collider
+	surface_grip = ground.get_meta("grip", 1.0) if ground else 1.0
+	_surface_rolling = ground.get_meta("rolling_resistance", 0.0) if ground else 0.0
 	var normal: Vector3 = hit.normal
 	var hit_distance := mount.distance_to(_contact)
 	compression = reach - hit_distance
@@ -99,7 +106,7 @@ func tire_force(setup: CarSetup) -> Vector2:
 	var load_factor := clampf(1.0 - setup.load_sensitivity * (wheel_load / setup.nominal_load - 1.0), 0.5, 1.5)
 	var c := setup.tire_shape
 	var b := tan(PI / (2.0 * c))  # Puts the peak at s = 1.
-	var f := setup.grip * load_factor * wheel_load * sin(c * atan(b * s))
+	var f := setup.grip * surface_grip * load_factor * wheel_load * sin(c * atan(b * s))
 	var force := Vector2(f * sx / s, -f * sy / s)
 	_force_sum += force
 	return force
@@ -124,7 +131,7 @@ func apply_tire(car: RigidBody3D, setup: CarSetup, substeps: int, delta: float) 
 	if not on_ground:
 		return
 	var tire := _force_sum / substeps
-	tire.x -= clampf(_long_speed, -1.0, 1.0) * setup.rolling_resistance * wheel_load
+	tire.x -= clampf(_long_speed, -1.0, 1.0) * (setup.rolling_resistance + _surface_rolling) * wheel_load
 	car.apply_force(_forward * tire.x + _right * tire.y, _contact - car.global_position)
 
 

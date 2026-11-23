@@ -6,6 +6,9 @@ extends RigidBody3D
 const AIR_DENSITY := 1.225
 ## Tire and wheel-spin steps per physics tick. Tires are stiff, so they need small steps.
 const SUBSTEPS := 20
+## How fast traction control cuts power per unit of extra slip, and gives it back, per second.
+const TC_CUT_RATE := 40.0
+const TC_RECOVER_RATE := 4.0
 
 @export var setup: CarSetup
 
@@ -19,6 +22,8 @@ var handbrake := false
 
 ## Measured acceleration in g: x to the right, y forward. For readouts.
 var g_force := Vector2.ZERO
+## Share of the throttle traction control is taking away right now, 0 to 1. For readouts.
+var traction_cut := 0.0
 
 var wheels: Array[Wheel] = []
 var drivetrain: Drivetrain
@@ -92,6 +97,7 @@ func _physics_process(delta: float) -> void:
 	var fr: Wheel = $WheelFR
 	var rl: Wheel = $WheelRL
 	var rr: Wheel = $WheelRR
+	var drive := _traction_control(throttle, delta)
 	var r := setup.wheel_radius
 	var h := delta / SUBSTEPS
 	for i in SUBSTEPS:
@@ -99,7 +105,7 @@ func _physics_process(delta: float) -> void:
 		fr.spin_with(-fr.tire_force(setup).x * r, front_brake, setup.wheel_inertia, h)
 		var left_torque := -rl.tire_force(setup).x * r
 		var right_torque := -rr.tire_force(setup).x * r
-		drivetrain.step(h, throttle, rl, rr, left_torque, right_torque, rear_brake, rear_brake)
+		drivetrain.step(h, drive, rl, rr, left_torque, right_torque, rear_brake, rear_brake)
 
 	for wheel in wheels:
 		wheel.apply_tire(self, setup, SUBSTEPS, delta)
@@ -121,6 +127,25 @@ func _steer_lock(speed: float) -> float:
 	var turn := atan(setup.wheelbase * setup.grip * 9.81 / (v * v))
 	var slide := deg_to_rad(setup.peak_slip_angle_deg) * setup.steer_assist_slip
 	return lerpf(full, minf(full, turn + slide), setup.steer_assist)
+
+
+## Throttle the engine gets after traction control. Watches the rear wheels' spin against
+## the road from the last tick and trims power while either spins past the target.
+func _traction_control(wanted: float, delta: float) -> float:
+	var g := drivetrain.ratio()
+	if not setup.traction_control or g == 0.0:
+		traction_cut = 0.0
+		return wanted
+	var spin := 0.0
+	for wheel: Wheel in [$WheelRL, $WheelRR]:
+		if wheel.on_ground:
+			spin = maxf(spin, wheel.slip_ratio * signf(g))
+	var target := setup.peak_slip_ratio * setup.traction_slip
+	if spin > target:
+		traction_cut = minf(1.0, traction_cut + (spin - target) / target * TC_CUT_RATE * delta)
+	else:
+		traction_cut = maxf(0.0, traction_cut - TC_RECOVER_RATE * delta)
+	return wanted * (1.0 - traction_cut)
 
 
 func _anti_roll(left: Wheel, right: Wheel, stiffness: float) -> void:

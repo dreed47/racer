@@ -52,10 +52,59 @@ func _process(_delta: float) -> bool:
 	panel.toggle()
 	_check(not panel.is_open() and not paused, "closing unpauses")
 
+	# Closing with unsaved changes asks first.
+	panel.toggle()
+	_check(panel._toggles.has("traction_control"), "on/off settings get a switch")
+	panel.set_value("traction_control", false)
+	_check(car.setup.traction_control == false, "switch sets the setup")
+	panel.set_value("wheelbase", 2.3)
+	_check(panel.unsaved_changes() == PackedStringArray(["wheelbase", "traction_control"]),
+			"unsaved changes listed (%s)" % [panel.unsaved_changes()])
+	panel.toggle()
+	_check(panel.is_asking() and panel.is_open() and paused, "closing with unsaved changes asks first")
+	panel.back_to_panel()
+	_check(panel.is_open() and not panel.is_asking(), "back returns to the setup")
+	panel.toggle()
+	panel.close()
+	_check(not panel.is_open() and not paused, "drive without saving closes")
+	_check(is_equal_approx(car.setup.wheelbase, 2.3), "unsaved change stays on the car")
+	panel.toggle()
+	panel.toggle()
+	panel._undo_and_close()
+	_check(not panel.is_open() and is_equal_approx(car.setup.wheelbase, 2.5) and car.setup.traction_control,
+			"undo changes restores the saved values and closes")
+	panel.toggle()
+	panel.set_value("wheelbase", 2.4)
+	panel.toggle()
+	panel._save_and_close()
+	_check(not panel.is_open() and not panel.has_unsaved_changes(), "save from the question saves and closes")
+	var on_disk := ResourceLoader.load(scratch, "", ResourceLoader.CACHE_MODE_IGNORE) as CarSetup
+	_check(on_disk != null and is_equal_approx(on_disk.wheelbase, 2.4), "saved value is in the scratch file")
+	panel.toggle()
+	panel.toggle()
+	_check(not panel.is_open(), "no changes: Tab closes straight away")
+
+	# A real Tab key press while a slider has focus, as when driving the panel by hand.
+	panel.toggle()
+	panel._first_slider.grab_focus()
+	root.push_input(_tab_key())
+	_check(not panel.is_open(), "Tab key closes the panel even while a slider has focus")
+	root.push_input(_tab_key())
+	_check(panel.is_open(), "Tab key opens it again")
+	panel.close()
+
 	DirAccess.remove_absolute(scratch)
 	print("PANEL CHECK " + ("FAILED" if _failed else "PASSED"))
 	quit(1 if _failed else 0)
 	return true
+
+
+func _tab_key() -> InputEventKey:
+	var key := InputEventKey.new()
+	key.physical_keycode = KEY_TAB
+	key.keycode = KEY_TAB
+	key.pressed = true
+	return key
 
 
 func _check(ok: bool, what: String) -> void:

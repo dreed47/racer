@@ -4,7 +4,6 @@
 
 [resource]
 script = ExtResource("1")
-spring_rate_rear = 42500.0
 max_steer_deg = 30.0
 torque_curve = PackedFloat32Array(80, 100, 125, 140, 148, 152, 150, 140, 120)
 gear_ratios = PackedFloat32Array(3.136, 1.888, 1.33, 1, 0.814)

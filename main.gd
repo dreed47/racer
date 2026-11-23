@@ -1,6 +1,6 @@
 extends Node3D
-## Test drive: puts the car on the track's spawn point and back there on reset.
-## Game modes (time trial, race, cruise) will replace this later.
+## Puts the car on the track's spawn point, and back there on reset (Y) or after a fall.
+## The game mode (time trial now) is its own node and only watches the car.
 
 ## Below this height the car has fallen off the world, so it goes back to the start.
 const FALL_LIMIT := -20.0

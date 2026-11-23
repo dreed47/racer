@@ -1,12 +1,15 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
-[ext_resource type="PackedScene" path="res://track/test_flat.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://track/loop_1.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://car/car.tscn" id="3"]
 [ext_resource type="Script" path="res://drivers/player_driver.gd" id="4"]
 [ext_resource type="Script" path="res://camera/chase_camera.gd" id="5"]
 [ext_resource type="PackedScene" path="res://debug/car_readout.tscn" id="6"]
 [ext_resource type="Script" path="res://debug/tuning_panel.gd" id="7"]
+[ext_resource type="Script" path="res://modes/time_trial/time_trial.gd" id="8"]
+[ext_resource type="Script" path="res://modes/time_trial/lap_hud.gd" id="9"]
+[ext_resource type="Script" path="res://debug/grip_display.gd" id="10"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1")
@@ -19,12 +22,25 @@ car = NodePath("../Car")
 
 [node name="Car" parent="." instance=ExtResource("3")]
 
+[node name="TimeTrial" type="Node" parent="." node_paths=PackedStringArray("car", "circuit")]
+script = ExtResource("8")
+car = NodePath("../Car")
+circuit = NodePath("../Track")
+
+[node name="LapHud" type="CanvasLayer" parent="." node_paths=PackedStringArray("time_trial")]
+script = ExtResource("9")
+time_trial = NodePath("../TimeTrial")
+
 [node name="ChaseCamera" type="Camera3D" parent="." node_paths=PackedStringArray("target")]
 script = ExtResource("5")
 target = NodePath("../Car")
 current = true
 
 [node name="CarReadout" parent="." node_paths=PackedStringArray("car") instance=ExtResource("6")]
+car = NodePath("../Car")
+
+[node name="GripDisplay" type="CanvasLayer" parent="." node_paths=PackedStringArray("car")]
+script = ExtResource("10")
 car = NodePath("../Car")
 
 [node name="TuningPanel" type="CanvasLayer" parent="." node_paths=PackedStringArray("car")]
