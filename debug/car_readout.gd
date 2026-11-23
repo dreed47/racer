@@ -21,6 +21,7 @@ func _process(_delta: float) -> void:
 		"Brake    %6.2f" % car.brake,
 		"Steer    %+6.2f" % car.steer,
 		"Handbrake  %s" % ("on" if car.handbrake else "off"),
+		"G        %+5.2f side  %+5.2f fwd" % [car.g_force.x, car.g_force.y],
 		"",
 		"Wheel     Load N  Spring mm  Slip %  Angle  Grip",
 		_row("Front L", w[0]),

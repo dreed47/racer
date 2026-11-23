@@ -9,7 +9,7 @@ var _tick := 0
 var _phase := ""
 var _phase_start := 0
 var _marks := {}
-var _corner_steer := 0.3
+var _corner_steer := 1.0
 
 
 func _initialize() -> void:
@@ -61,7 +61,7 @@ func _physics_process(_delta: float) -> bool:
 				_car.shift(-1)
 			_start("corner")
 		30 * HZ:
-			_report("Holding 60 km/h, steer 0.3 right for 6 s (expect about 0.85 g, front near its limit)")
+			_report("Holding 60 km/h, full right stick for 6 s (expect about 0.85 g, front level near 1)")
 			var lat_g: float = _car.linear_velocity.length() * _car.angular_velocity.length() / 9.81
 			print("  sideways %.2f g" % lat_g)
 			_start("reverse")

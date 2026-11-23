@@ -72,6 +72,15 @@ func update_suspension(car: RigidBody3D, setup: CarSetup) -> void:
 	_lat_speed = v.dot(_right)
 
 
+## Adds extra suspension force, such as an anti-roll bar's. Load never goes below 0.
+func add_load(car: RigidBody3D, force: float) -> void:
+	if not on_ground:
+		return
+	var applied := maxf(-wheel_load, force)
+	wheel_load += applied
+	car.apply_force(car.global_basis.y * applied, global_position - car.global_position)
+
+
 ## Tire force from the current spin: x along the wheel, y to its right, in N.
 ## Adds it to the tick's average. Returns zero in the air.
 func tire_force(setup: CarSetup) -> Vector2:
