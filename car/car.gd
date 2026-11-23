@@ -4,25 +4,33 @@ extends RigidBody3D
 ## A driver (the player now, AI later) sets throttle, brake, steer and handbrake.
 
 const AIR_DENSITY := 1.225
+## Tire and wheel-spin steps per physics tick. Tires are stiff, so they need small steps.
+const SUBSTEPS := 20
 
 @export var setup: CarSetup
 
 ## 0 to 1.
 var throttle := 0.0
-## 0 to 1. Held at a standstill, it reverses.
+## 0 to 1.
 var brake := 0.0
 ## -1 full left to 1 full right.
 var steer := 0.0
 var handbrake := false
 
 var wheels: Array[Wheel] = []
+var drivetrain: Drivetrain
 
 var _steer_now := 0.0
-var _reset_pending := false
+var _place_pending := false
+var _place_target := Transform3D.IDENTITY
+
+## Sent after place_at() has moved the car.
+signal placed
 
 
 func _ready() -> void:
 	wheels = [$WheelFL, $WheelFR, $WheelRL, $WheelRR]
+	drivetrain = Drivetrain.new(setup)
 	mass = setup.mass
 	center_of_mass_mode = CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = Vector3.ZERO
@@ -40,9 +48,15 @@ func forward_speed() -> float:
 	return linear_velocity.dot(-global_basis.z)
 
 
-## Puts the car back on its wheels where it is, facing the same way.
-func reset_upright() -> void:
-	_reset_pending = true
+## Gear change: 1 up, -1 down. Order is R, N, 1, 2 ...
+func shift(direction: int) -> void:
+	drivetrain.shift(direction)
+
+
+## Moves the car to a place, stopped. Takes effect on the next physics step.
+func place_at(where: Transform3D) -> void:
+	_place_target = where
+	_place_pending = true
 
 
 func _physics_process(delta: float) -> void:
@@ -55,21 +69,29 @@ func _physics_process(delta: float) -> void:
 	$WheelFL.steer_angle = angle
 	$WheelFR.steer_angle = angle
 
-	var drive := throttle * setup.drive_force
-	var brake_total := brake * setup.brake_force
-	if brake > 0.1 and throttle < 0.05 and speed < 0.5:
-		drive = -brake * setup.drive_force * setup.reverse_ratio
-		brake_total = 0.0
-	var front_brake := brake_total * setup.brake_bias_front / 2.0
-	var rear_brake := brake_total * (1.0 - setup.brake_bias_front) / 2.0
+	var front_brake := brake * setup.brake_torque * setup.brake_bias_front / 2.0
+	var rear_brake := brake * setup.brake_torque * (1.0 - setup.brake_bias_front) / 2.0
 	if handbrake:
-		rear_brake += setup.handbrake_force / 2.0
+		rear_brake += setup.handbrake_torque / 2.0
 
 	for wheel in wheels:
-		if wheel.is_front:
-			wheel.simulate(self, setup, 0.0, front_brake, delta)
-		else:
-			wheel.simulate(self, setup, drive / 2.0, rear_brake, delta)
+		wheel.update_suspension(self, setup)
+
+	var fl: Wheel = $WheelFL
+	var fr: Wheel = $WheelFR
+	var rl: Wheel = $WheelRL
+	var rr: Wheel = $WheelRR
+	var r := setup.wheel_radius
+	var h := delta / SUBSTEPS
+	for i in SUBSTEPS:
+		fl.spin_with(-fl.tire_force(setup).x * r, front_brake, setup.wheel_inertia, h)
+		fr.spin_with(-fr.tire_force(setup).x * r, front_brake, setup.wheel_inertia, h)
+		var left_torque := -rl.tire_force(setup).x * r
+		var right_torque := -rr.tire_force(setup).x * r
+		drivetrain.step(h, throttle, rl, rr, left_torque, right_torque, rear_brake, rear_brake)
+
+	for wheel in wheels:
+		wheel.apply_tire(self, setup, SUBSTEPS, delta)
 
 	var v := linear_velocity
 	var drag := 0.5 * AIR_DENSITY * setup.drag_coefficient * setup.frontal_area
@@ -77,15 +99,13 @@ func _physics_process(delta: float) -> void:
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
-	if not _reset_pending:
+	if not _place_pending:
 		return
-	_reset_pending = false
-	var facing := -state.transform.basis.z
-	facing.y = 0.0
-	if facing.length_squared() < 0.001:
-		facing = Vector3.FORWARD
-	var upright := Basis.looking_at(facing.normalized(), Vector3.UP)
-	state.transform = Transform3D(upright, state.transform.origin + Vector3.UP)
+	_place_pending = false
+	state.transform = _place_target
 	state.linear_velocity = Vector3.ZERO
 	state.angular_velocity = Vector3.ZERO
+	for wheel in wheels:
+		wheel.spin = 0.0
 	reset_physics_interpolation.call_deferred()
+	placed.emit.call_deferred()

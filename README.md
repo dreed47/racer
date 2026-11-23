@@ -27,7 +27,7 @@ godot --path .      # run the game
 godot --headless --path . -s tests/sim_check.gd
 ```
 
-Prints suspension sag, weight transfer and speeds. Touches no files.
+Prints suspension sag, acceleration, braking, cornering grip and reverse. Touches no files.
 
 ## Controls
 
@@ -36,11 +36,11 @@ Prints suspension sag, weight transfer and speeds. Touches no files.
 | Steer      | Left stick      | A/D or arrows |
 | Throttle   | Right trigger   | W or Up       |
 | Brake      | Left trigger    | S or Down     |
-| Reverse    | Hold LT when stopped | Hold S when stopped |
+| Reverse    | LB down past N to R | Q down past N to R |
 | Handbrake  | A               | Space         |
 | Shift up   | RB              | E             |
 | Shift down | LB              | Q             |
-| Reset car  | Y               | R             |
+| Back to start | Y            | R             |
 | Pause      | Menu            | Esc           |
 
 Units are metric: metres, kilograms, newtons. Physics runs at 120 Hz with Jolt.

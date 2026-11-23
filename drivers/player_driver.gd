@@ -16,5 +16,7 @@ func _physics_process(_delta: float) -> void:
 	car.throttle = Input.get_action_strength("throttle")
 	car.brake = Input.get_action_strength("brake")
 	car.handbrake = Input.is_action_pressed("handbrake")
-	if Input.is_action_just_pressed("reset_car"):
-		car.reset_upright()
+	if Input.is_action_just_pressed("shift_up"):
+		car.shift(1)
+	if Input.is_action_just_pressed("shift_down"):
+		car.shift(-1)
