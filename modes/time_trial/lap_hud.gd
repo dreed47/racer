@@ -9,6 +9,8 @@ const SLOWER := Color(1.0, 0.4, 0.35)
 const NEUTRAL := Color(1.0, 1.0, 1.0)
 
 @export var time_trial: TimeTrial
+## Optional. Shows a note when the ghost is turned on or off.
+@export var ghost: GhostCar
 
 var _lap: Label
 var _times: Label
@@ -32,6 +34,8 @@ func _ready() -> void:
 	timer.split.connect(func(_i, _t, delta): _show_delta(delta))
 	timer.lap_finished.connect(_on_lap_finished)
 	timer.lap_voided.connect(func(): _show_note("Missed a checkpoint: lap not counted", SLOWER))
+	if ghost != null:
+		ghost.toggled.connect(_on_ghost_toggled)
 
 
 func _process(delta: float) -> void:
@@ -55,6 +59,15 @@ func _on_lap_finished(_time: float, delta: float, is_best: bool) -> void:
 		_show_note("New best  %s" % _signed(delta), FASTER)
 	else:
 		_show_delta(delta)
+
+
+func _on_ghost_toggled(shown: bool, has_lap: bool) -> void:
+	if not shown:
+		_show_note("Ghost off", NEUTRAL)
+	elif has_lap:
+		_show_note("Ghost on", NEUTRAL)
+	else:
+		_show_note("Ghost on: drive a full lap to set one", NEUTRAL)
 
 
 func _show_delta(delta: float) -> void:

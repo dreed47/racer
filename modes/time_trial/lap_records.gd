@@ -7,8 +7,9 @@ const DEFAULT_PATH := "user://lap_records.cfg"
 var path := DEFAULT_PATH
 
 
+## user:// paths go to a temp folder under tests (see SavePaths).
 func _init(file_path := DEFAULT_PATH) -> void:
-	path = file_path
+	path = SavePaths.safe(file_path)
 
 
 ## Best lap on a track: {"time": float, "splits": Array[float]}, or empty if none.

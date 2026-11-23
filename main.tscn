@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
 [ext_resource type="PackedScene" path="res://track/ridge/ridge.tscn" id="2"]
@@ -11,6 +11,7 @@
 [ext_resource type="Script" path="res://modes/time_trial/lap_hud.gd" id="9"]
 [ext_resource type="Script" path="res://debug/grip_display.gd" id="10"]
 [ext_resource type="Script" path="res://car/sound/car_sound.gd" id="11"]
+[ext_resource type="Script" path="res://modes/time_trial/ghost_car.gd" id="12"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1")
@@ -32,9 +33,14 @@ script = ExtResource("8")
 car = NodePath("../Car")
 track = NodePath("../Track")
 
-[node name="LapHud" type="CanvasLayer" parent="." node_paths=PackedStringArray("time_trial")]
+[node name="GhostCar" type="Node3D" parent="." node_paths=PackedStringArray("time_trial")]
+script = ExtResource("12")
+time_trial = NodePath("../TimeTrial")
+
+[node name="LapHud" type="CanvasLayer" parent="." node_paths=PackedStringArray("time_trial", "ghost")]
 script = ExtResource("9")
 time_trial = NodePath("../TimeTrial")
+ghost = NodePath("../GhostCar")
 
 [node name="ChaseCamera" type="Camera3D" parent="." node_paths=PackedStringArray("target")]
 script = ExtResource("5")

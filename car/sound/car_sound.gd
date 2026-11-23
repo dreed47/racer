@@ -39,7 +39,8 @@ func toggle_mute() -> void:
 
 
 func _process(_delta: float) -> void:
-	if Input.is_action_just_pressed("mute_sound"):
+	# Skip while a menu (the tuning panel) has focus: the D-pad moves through it then.
+	if Input.is_action_just_pressed("mute_sound") and get_viewport().gui_get_focus_owner() == null:
 		toggle_mute()
 	if car == null or car.drivetrain == null:
 		return

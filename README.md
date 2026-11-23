@@ -16,7 +16,7 @@ godot --path .      # run the game
 - `car/`: car physics and setup. `car_look.gd` puts the 3D model from `car/roadster/` on the car. `sound/` makes the engine, tire and wind sound. Only the tire skid is a recording.
 - `track/`: places to drive. `track.gd` is what every track offers. `circuit.gd` builds a loop from straights and arcs in code. `blender_track.gd` loads a track made in Blender.
 - `tools/blender/`: Python scripts that build and export Blender tracks and the car model.
-- `modes/`: game modes. `time_trial/` has the lap timer, best-lap file and lap display.
+- `modes/`: game modes. `time_trial/` has the lap timer, best-lap file, lap display and ghost car. `save_paths.gd` keeps tests away from your saved files.
 - `drivers/`: what controls a car (player now, AI later).
 - `camera/`: chase camera.
 - `debug/`: on-screen readouts and the tuning panel.
@@ -66,6 +66,12 @@ godot --headless --path . -s tests/sound_check.gd
 
 Checks car sound: engine pitch follows rpm, squeal only when sliding on hard ground, wind grows with speed, mute works. Touches no files.
 
+```sh
+godot --headless --path . -s tests/ghost_check.gd
+```
+
+Checks the ghost car: recording and replay, saving and loading, keeping only the fastest lap, the see-through car following the lap, and the on/off key. Writes only to a temp folder.
+
 ## Time trial
 
 The game starts on Ridge (`track/ridge/ridge.tscn`), a 2.6 km track with hills, a blind crest and a downhill hairpin.
@@ -85,6 +91,15 @@ On Ridge:
 - Y puts you back at the start and cancels the lap.
 - After each checkpoint and lap, the gap to your best shows in green (faster) or red (slower).
 - Best laps are kept in `user://lap_records.cfg`. On Linux that's `~/.local/share/godot/app_userdata/Racer/`. Delete the file to clear them.
+
+## Ghost car
+
+A see-through, pale blue copy of the roadster replays your fastest lap on the track while you drive. Race it to see where you gain or lose time. It has no collision, so you drive through it.
+
+- It starts when you cross the line, in step with your lap, and stops at the end of its lap.
+- The ghost is your fastest recorded lap. Laps from before the ghost was added weren't recorded, so your first full lap now sets it.
+- G or D-pad up turns it on and off. A note on screen says which.
+- Ghosts are kept in `user://ghosts/`, one file per track, next to the best-lap file. Delete a file to clear that track's ghost.
 
 ## Tire grip display
 
@@ -136,6 +151,7 @@ Useful knobs:
 | Tuning panel | View          | Tab           |
 | Pause      | Menu            | Esc           |
 | Mute sound | D-pad down      | M             |
+| Ghost car on/off | D-pad up  | G             |
 
 Units are metric: metres, kilograms, newtons. Physics runs at 120 Hz with Jolt.
 
