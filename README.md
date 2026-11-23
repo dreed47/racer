@@ -13,9 +13,9 @@ godot --path .      # run the game
 
 ## Layout
 
-- `car/`: car physics and setup.
+- `car/`: car physics and setup. `car_look.gd` puts the 3D model from `car/roadster/` on the car.
 - `track/`: places to drive. `track.gd` is what every track offers. `circuit.gd` builds a loop from straights and arcs in code. `blender_track.gd` loads a track made in Blender.
-- `tools/blender/`: Python scripts that build and export Blender tracks.
+- `tools/blender/`: Python scripts that build and export Blender tracks and the car model.
 - `modes/`: game modes. `time_trial/` has the lap timer, best-lap file and lap display.
 - `drivers/`: what controls a car (player now, AI later).
 - `camera/`: chase camera.
@@ -53,6 +53,12 @@ godot --headless --path . -s tests/track_check.gd
 ```
 
 Checks the Ridge track: gates, centreline, hills, surfaces, a timed lap and the car at the start. Touches no files.
+
+```sh
+godot --headless --path . -s tests/look_check.gd
+```
+
+Checks the car model: four wheels with calipers, the steering wheel turns, the brake lights glow. Touches no files.
 
 ## Time trial
 
@@ -157,3 +163,28 @@ Markers (Blender empties, arrow pointing the way you drive):
 - `Centreline`: an edge loop along the middle of the road. Hidden in the game.
 
 Blender prints `ERROR MeshOptimizer is not available` during export. It's harmless.
+
+## Car model in Blender
+
+The roadster model is built by a script too:
+
+```sh
+blender -b -P tools/blender/build_roadster.py
+```
+
+This writes `car/roadster/source/roadster.blend` and `car/roadster/roadster.glb`. It overwrites hand edits in the `.blend`.
+
+To edit by hand, open the `.blend`, save, then export:
+
+```sh
+blender -b car/roadster/source/roadster.blend -P tools/blender/export_track.py -- car/roadster/roadster.glb
+```
+
+The model only changes looks. The car still collides as a box. Keep these object names:
+
+- `wheel`: the front left wheel, outer face to the left. The game copies it to all four corners.
+- `caliper`: the brake caliper beside it. Steers but doesn't spin.
+- `steering_wheel`: origin at the hub.
+- `brake_lights`: glow when you brake.
+
+The `preview_wheel` objects in the `.blend` only show the other three wheels there. They are not exported.

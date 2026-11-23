@@ -37,6 +37,8 @@ var _angle := 0.0
 var _surface_rolling := 0.0  # Extra rolling resistance from the ground, such as grass.
 
 @onready var _visual: Node3D = $Visual
+## Turns with the wheel. Visual moves with the suspension; Spin, if there is one, also rolls.
+@onready var _spin: Node3D = get_node("Visual/Spin") if has_node("Visual/Spin") else _visual
 
 
 ## Casts the ray, applies the spring and damper, and reads the ground speed at the contact.
@@ -127,7 +129,7 @@ static func brake_spin(free_spin: float, brake_step: float) -> float:
 ## Applies the tick's average tire force plus rolling resistance, and turns the visual.
 func apply_tire(car: RigidBody3D, setup: CarSetup, substeps: int, delta: float) -> void:
 	_angle = wrapf(_angle + spin * delta, 0.0, TAU)
-	_visual.rotation.x = -_angle
+	_spin.rotation.x = -_angle
 	if not on_ground:
 		return
 	var tire := _force_sum / substeps

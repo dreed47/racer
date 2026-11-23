@@ -1,38 +1,13 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://car/car.gd" id="1"]
 [ext_resource type="Script" path="res://car/wheel.gd" id="2"]
 [ext_resource type="Resource" path="res://car/roadster.tres" id="3"]
+[ext_resource type="Script" path="res://car/car_look.gd" id="4"]
+[ext_resource type="PackedScene" path="res://car/roadster/roadster.glb" id="5"]
 
 [sub_resource type="BoxShape3D" id="body_shape"]
 size = Vector3(1.6, 0.6, 3.9)
-
-[sub_resource type="StandardMaterial3D" id="paint"]
-albedo_color = Color(0.8, 0.12, 0.1, 1)
-roughness = 0.35
-
-[sub_resource type="StandardMaterial3D" id="glass"]
-albedo_color = Color(0.1, 0.12, 0.15, 1)
-roughness = 0.1
-
-[sub_resource type="StandardMaterial3D" id="rubber"]
-albedo_color = Color(0.08, 0.08, 0.08, 1)
-roughness = 0.9
-
-[sub_resource type="BoxMesh" id="body_mesh"]
-material = SubResource("paint")
-size = Vector3(1.6, 0.45, 3.9)
-
-[sub_resource type="BoxMesh" id="cabin_mesh"]
-material = SubResource("glass")
-size = Vector3(1.3, 0.38, 1.5)
-
-[sub_resource type="CylinderMesh" id="wheel_mesh"]
-material = SubResource("rubber")
-top_radius = 0.29
-bottom_radius = 0.29
-height = 0.2
-radial_segments = 24
 
 [node name="Car" type="RigidBody3D"]
 mass = 1000.0
@@ -46,23 +21,13 @@ setup = ExtResource("3")
 [node name="Collision" type="CollisionShape3D" parent="."]
 shape = SubResource("body_shape")
 
-[node name="Body" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
-mesh = SubResource("body_mesh")
-
-[node name="Cabin" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.36, 0.35)
-mesh = SubResource("cabin_mesh")
-
 [node name="WheelFL" type="Node3D" parent="."]
 script = ExtResource("2")
 is_front = true
 
 [node name="Visual" type="Node3D" parent="WheelFL"]
 
-[node name="Mesh" type="MeshInstance3D" parent="WheelFL/Visual"]
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("wheel_mesh")
+[node name="Spin" type="Node3D" parent="WheelFL/Visual"]
 
 [node name="WheelFR" type="Node3D" parent="."]
 script = ExtResource("2")
@@ -70,9 +35,7 @@ is_front = true
 
 [node name="Visual" type="Node3D" parent="WheelFR"]
 
-[node name="Mesh" type="MeshInstance3D" parent="WheelFR/Visual"]
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("wheel_mesh")
+[node name="Spin" type="Node3D" parent="WheelFR/Visual"]
 
 [node name="WheelRL" type="Node3D" parent="."]
 script = ExtResource("2")
@@ -80,9 +43,7 @@ is_front = false
 
 [node name="Visual" type="Node3D" parent="WheelRL"]
 
-[node name="Mesh" type="MeshInstance3D" parent="WheelRL/Visual"]
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("wheel_mesh")
+[node name="Spin" type="Node3D" parent="WheelRL/Visual"]
 
 [node name="WheelRR" type="Node3D" parent="."]
 script = ExtResource("2")
@@ -90,6 +51,10 @@ is_front = false
 
 [node name="Visual" type="Node3D" parent="WheelRR"]
 
-[node name="Mesh" type="MeshInstance3D" parent="WheelRR/Visual"]
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("wheel_mesh")
+[node name="Spin" type="Node3D" parent="WheelRR/Visual"]
+
+[node name="Look" type="Node3D" parent="." node_paths=PackedStringArray("car")]
+script = ExtResource("4")
+car = NodePath("..")
+
+[node name="Model" parent="Look" instance=ExtResource("5")]
