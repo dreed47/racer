@@ -1,0 +1,18 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://debug/car_readout.gd" id="1"]
+
+[sub_resource type="SystemFont" id="mono"]
+font_names = PackedStringArray("monospace")
+
+[node name="CarReadout" type="CanvasLayer"]
+script = ExtResource("1")
+
+[node name="Label" type="Label" parent="."]
+offset_left = 24.0
+offset_top = 24.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 6
+theme_override_fonts/font = SubResource("mono")
+theme_override_font_sizes/font_size = 24

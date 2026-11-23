@@ -1,4 +1,6 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene format=3]
+
+[ext_resource type="Shader" path="res://track/grid.gdshader" id="1"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
 
@@ -11,11 +13,36 @@ sky = SubResource("sky")
 ambient_light_source = 3
 tonemap_mode = 2
 
+[sub_resource type="ShaderMaterial" id="grid"]
+shader = ExtResource("1")
+
+[sub_resource type="StandardMaterial3D" id="concrete"]
+albedo_color = Color(0.62, 0.6, 0.55, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="stripe"]
+albedo_color = Color(0.9, 0.75, 0.1, 1)
+
 [sub_resource type="BoxShape3D" id="ground_shape"]
 size = Vector3(1000, 1, 1000)
 
 [sub_resource type="PlaneMesh" id="ground_mesh"]
+material = SubResource("grid")
 size = Vector2(1000, 1000)
+
+[sub_resource type="BoxShape3D" id="ramp_shape"]
+size = Vector3(8, 1, 14)
+
+[sub_resource type="BoxMesh" id="ramp_mesh"]
+material = SubResource("concrete")
+size = Vector3(8, 1, 14)
+
+[sub_resource type="BoxShape3D" id="bump_shape"]
+size = Vector3(6, 0.1, 0.6)
+
+[sub_resource type="BoxMesh" id="bump_mesh"]
+material = SubResource("stripe")
+size = Vector3(6, 0.1, 0.6)
 
 [node name="TestFlat" type="Node3D"]
 
@@ -23,8 +50,11 @@ size = Vector2(1000, 1000)
 environment = SubResource("env")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 0, 50, 0)
+transform = Transform3D(0.866, 0, -0.5, -0.354, 0.707, -0.612, 0.354, 0.707, 0.612, 0, 50, 0)
 shadow_enabled = true
+
+[node name="Spawn" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
 
 [node name="Ground" type="StaticBody3D" parent="."]
 
@@ -34,3 +64,103 @@ shape = SubResource("ground_shape")
 
 [node name="Mesh" type="MeshInstance3D" parent="Ground"]
 mesh = SubResource("ground_mesh")
+
+[node name="Ramp" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.990268, -0.139173, 0, 0.139173, 0.990268, 30, 0.4, -60)
+
+[node name="Collision" type="CollisionShape3D" parent="Ramp"]
+shape = SubResource("ramp_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Ramp"]
+mesh = SubResource("ramp_mesh")
+
+[node name="Bump1" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0, -20)
+
+[node name="Collision" type="CollisionShape3D" parent="Bump1"]
+shape = SubResource("bump_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Bump1"]
+mesh = SubResource("bump_mesh")
+
+[node name="Bump2" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0, -29)
+
+[node name="Collision" type="CollisionShape3D" parent="Bump2"]
+shape = SubResource("bump_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Bump2"]
+mesh = SubResource("bump_mesh")
+
+[node name="Bump3" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0, -38)
+
+[node name="Collision" type="CollisionShape3D" parent="Bump3"]
+shape = SubResource("bump_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Bump3"]
+mesh = SubResource("bump_mesh")
+
+[node name="Bump4" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0, -47)
+
+[node name="Collision" type="CollisionShape3D" parent="Bump4"]
+shape = SubResource("bump_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Bump4"]
+mesh = SubResource("bump_mesh")
+
+[node name="Bump5" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0, -56)
+
+[node name="Collision" type="CollisionShape3D" parent="Bump5"]
+shape = SubResource("bump_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Bump5"]
+mesh = SubResource("bump_mesh")
+
+[node name="Bump6" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0, -65)
+
+[node name="Collision" type="CollisionShape3D" parent="Bump6"]
+shape = SubResource("bump_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Bump6"]
+mesh = SubResource("bump_mesh")
+
+[node name="Bump7" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0, -74)
+
+[node name="Collision" type="CollisionShape3D" parent="Bump7"]
+shape = SubResource("bump_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Bump7"]
+mesh = SubResource("bump_mesh")
+
+[node name="Bump8" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0, -83)
+
+[node name="Collision" type="CollisionShape3D" parent="Bump8"]
+shape = SubResource("bump_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Bump8"]
+mesh = SubResource("bump_mesh")
+
+[node name="Bump9" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0, -92)
+
+[node name="Collision" type="CollisionShape3D" parent="Bump9"]
+shape = SubResource("bump_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Bump9"]
+mesh = SubResource("bump_mesh")
+
+[node name="Bump10" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0, -101)
+
+[node name="Collision" type="CollisionShape3D" parent="Bump10"]
+shape = SubResource("bump_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Bump10"]
+mesh = SubResource("bump_mesh")
+

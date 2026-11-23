@@ -16,7 +16,18 @@ godot --path .      # run the game
 - `car/`: car physics and setup.
 - `track/`: places to drive.
 - `modes/`: game modes (time trial first).
-- `debug/`: test tools, such as the controller readout.
+- `drivers/`: what controls a car (player now, AI later).
+- `camera/`: chase camera.
+- `debug/`: on-screen readouts, such as wheel loads.
+- `tests/`: headless checks.
+
+## Check the physics
+
+```sh
+godot --headless --path . -s tests/sim_check.gd
+```
+
+Prints suspension sag, weight transfer and speeds. Touches no files.
 
 ## Controls
 
@@ -25,6 +36,7 @@ godot --path .      # run the game
 | Steer      | Left stick      | A/D or arrows |
 | Throttle   | Right trigger   | W or Up       |
 | Brake      | Left trigger    | S or Down     |
+| Reverse    | Hold LT when stopped | Hold S when stopped |
 | Handbrake  | A               | Space         |
 | Shift up   | RB              | E             |
 | Shift down | LB              | Q             |
