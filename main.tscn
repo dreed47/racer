@@ -1,7 +1,7 @@
 [gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
-[ext_resource type="PackedScene" path="res://track/loop_1.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://track/ridge/ridge.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://car/car.tscn" id="3"]
 [ext_resource type="Script" path="res://drivers/player_driver.gd" id="4"]
 [ext_resource type="Script" path="res://camera/chase_camera.gd" id="5"]
@@ -22,10 +22,10 @@ car = NodePath("../Car")
 
 [node name="Car" parent="." instance=ExtResource("3")]
 
-[node name="TimeTrial" type="Node" parent="." node_paths=PackedStringArray("car", "circuit")]
+[node name="TimeTrial" type="Node" parent="." node_paths=PackedStringArray("car", "track")]
 script = ExtResource("8")
 car = NodePath("../Car")
-circuit = NodePath("../Track")
+track = NodePath("../Track")
 
 [node name="LapHud" type="CanvasLayer" parent="." node_paths=PackedStringArray("time_trial")]
 script = ExtResource("9")

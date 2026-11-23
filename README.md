@@ -14,7 +14,8 @@ godot --path .      # run the game
 ## Layout
 
 - `car/`: car physics and setup.
-- `track/`: places to drive. `circuit.gd` builds a loop from straights and arcs.
+- `track/`: places to drive. `track.gd` is what every track offers. `circuit.gd` builds a loop from straights and arcs in code. `blender_track.gd` loads a track made in Blender.
+- `tools/blender/`: Python scripts that build and export Blender tracks.
 - `modes/`: game modes. `time_trial/` has the lap timer, best-lap file and lap display.
 - `drivers/`: what controls a car (player now, AI later).
 - `camera/`: chase camera.
@@ -45,15 +46,30 @@ Checks traction control: full throttle in 1st, straight and in a tight turn, wit
 godot --headless --path . -s tests/lap_check.gd
 ```
 
-Checks the track, the lap timer and the best-lap file. Saves only to the system temp folder.
+Checks loop_1, the lap timer and the best-lap file. Saves only to the system temp folder.
+
+```sh
+godot --headless --path . -s tests/track_check.gd
+```
+
+Checks the Ridge track: gates, centreline, hills, surfaces, a timed lap and the car at the start. Touches no files.
 
 ## Time trial
 
-The game starts on `track/loop_1.tscn`, a 1.6 km loop with a fast sweeper, a chicane and two hairpins.
+The game starts on Ridge (`track/ridge/ridge.tscn`), a 2.6 km track with hills, a blind crest and a downhill hairpin.
+
+To drive loop_1 instead, open `main.tscn` in a text editor and change `res://track/ridge/ridge.tscn` to `res://track/loop_1.tscn`. A track picker comes later.
+
+On Ridge:
+
+- Red and white kerbs mark the corners. They grip a little less than the road.
+- Gravel traps sit on the outside of the big corners. Gravel grips less than grass and slows you much more.
+- Low walls guard the fastest corners.
 
 - You start 30 m before the line. The clock starts when you cross it.
 - Hidden checkpoints stop shortcuts. Miss one and the lap doesn't count.
 - Grass has less grip and slows the car.
+- Each track keeps its own best lap.
 - Y puts you back at the start and cancels the lap.
 - After each checkpoint and lap, the gap to your best shows in green (faster) or red (slower).
 - Best laps are kept in `user://lap_records.cfg`. On Linux that's `~/.local/share/godot/app_userdata/Racer/`. Delete the file to clear them.
@@ -99,3 +115,45 @@ Useful knobs:
 | Pause      | Menu            | Esc           |
 
 Units are metric: metres, kilograms, newtons. Physics runs at 120 Hz with Jolt.
+
+## Making tracks in Blender
+
+Ridge is built by a script, so you can rebuild it from scratch or edit it by hand.
+
+Rebuild from the script (about 10 s):
+
+```sh
+blender -b -P tools/blender/build_ridge.py
+```
+
+This writes `track/ridge/source/ridge.blend` and `track/ridge/ridge.glb`. It overwrites hand edits in the `.blend`.
+
+Edit by hand:
+
+1. Open `track/ridge/source/ridge.blend` in Blender and make your changes. Save.
+2. Export to the game:
+
+   ```sh
+   blender -b track/ridge/source/ridge.blend -P tools/blender/export_track.py -- track/ridge/ridge.glb
+   ```
+
+3. Run `godot --headless --path . -s tests/track_check.gd` to check nothing broke.
+
+Name objects so the game knows what they are. The start of each name sets the surface:
+
+| Name starts with | Grip | Slows the car |
+|---|---|---|
+| `road` | 1.0 | no |
+| `kerb` | 0.9 | a little |
+| `grass` | 0.6 | yes |
+| `gravel` | 0.45 | a lot |
+| `wall`, `stand`, `tree` | 0.6 | no |
+| `deco` | no collision, looks only | |
+
+Markers (Blender empties, arrow pointing the way you drive):
+
+- `Gate0`: start/finish line. `Gate1`, `Gate2` and so on: checkpoints, in driving order.
+- `Spawn`: where the car starts, a little above the road.
+- `Centreline`: an edge loop along the middle of the road. Hidden in the game.
+
+Blender prints `ERROR MeshOptimizer is not available` during export. It's harmless.

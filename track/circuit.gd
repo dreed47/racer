@@ -1,9 +1,8 @@
 class_name Circuit
-extends Node3D
+extends Track
 ## A closed circuit built in code from straights and arcs: road with collision, edge lines,
-## a start line, a spawn point and timing gates. Knows nothing about game modes.
-## Surfaces tell the wheels how grippy they are through "grip" and "rolling_resistance"
-## metadata on their bodies. The road gets them here; set them on the ground in the scene.
+## a start line, a spawn point and timing gates.
+## The road gets its grip metadata here; set it on the ground in the scene.
 
 ## Distance between centreline samples, in metres.
 const SAMPLE_STEP := 2.0
@@ -14,8 +13,6 @@ const ROAD_COLOR := Color(0.24, 0.24, 0.26)
 const PAINT_COLOR := Color(0.92, 0.92, 0.9)
 const DARK_COLOR := Color(0.08, 0.08, 0.08)
 
-## Name that keeps each track's best laps apart.
-@export var track_id := "loop_1"
 @export_range(6, 20, 0.5) var road_width := 10.0
 @export_range(0.5, 2, 0.01) var road_grip := 1.0
 ## Pieces in driving order, starting at this node and heading along -Z.
@@ -39,6 +36,10 @@ var _heading_gap := 0.0
 func _ready() -> void:
 	_trace()
 	_build()
+
+
+func start_line_distance() -> float:
+	return start_distance
 
 
 ## Lap length in metres.

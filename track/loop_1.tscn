@@ -30,6 +30,7 @@ size = Vector2(1400, 1400)
 
 [node name="Loop1" type="Node3D"]
 script = ExtResource("1")
+track_id = "loop_1"
 pieces = PackedVector2Array(320, 0, 30, 90, 80, 0, 40, -40, 40, 80, 40, -40, 40, 0, 120, 90, 60, 0, 15, 180, 60, 0, 35, -180, 220, 0, 40, 90, 202.85, 0, 30, 90)
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
