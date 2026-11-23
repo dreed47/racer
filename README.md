@@ -13,7 +13,7 @@ godot --path .      # run the game
 
 ## Layout
 
-- `car/`: car physics and setup. `car_look.gd` puts the 3D model from `car/roadster/` on the car.
+- `car/`: car physics and setup. `car_look.gd` puts the 3D model from `car/roadster/` on the car. `sound/` makes the engine, tire and wind sound. Only the tire skid is a recording.
 - `track/`: places to drive. `track.gd` is what every track offers. `circuit.gd` builds a loop from straights and arcs in code. `blender_track.gd` loads a track made in Blender.
 - `tools/blender/`: Python scripts that build and export Blender tracks and the car model.
 - `modes/`: game modes. `time_trial/` has the lap timer, best-lap file and lap display.
@@ -60,6 +60,12 @@ godot --headless --path . -s tests/look_check.gd
 
 Checks the car model: four wheels with calipers, the steering wheel turns, the brake lights glow. Touches no files.
 
+```sh
+godot --headless --path . -s tests/sound_check.gd
+```
+
+Checks car sound: engine pitch follows rpm, squeal only when sliding on hard ground, wind grows with speed, mute works. Touches no files.
+
 ## Time trial
 
 The game starts on Ridge (`track/ridge/ridge.tscn`), a 2.6 km track with hills, a blind crest and a downhill hairpin.
@@ -88,6 +94,16 @@ Four boxes in the bottom-left corner show the tires, laid out like the car seen 
 - Yellow: near the limit. This is where the tire grips hardest.
 - Red: sliding or spinning. Red rear boxes mean wheelspin; red front boxes mean the car is running wide.
 - `TC` turns yellow while traction control is cutting power.
+
+## Sound
+
+The engine and wind are made in code while you drive. The tire skid is a recording, `car/sound/tire_skid.wav`.
+
+- Engine: a four-cylinder note that follows the rpm. More throttle sounds louder and rougher.
+- Tires: a soft road rumble that grows with speed. The skid fades in when a grip box turns yellow and is loudest at red, a little higher in pitch the harder you slide. It stays below the engine. No skid on grass or gravel.
+- Wind: grows with speed.
+
+To change the volume, select `CarSound` in `main.tscn` in the editor and set `Volume Db`. Each sound has its own level there too. `Tire Db` sets the skid and road rumble.
 
 ## Tune the car
 
@@ -119,6 +135,7 @@ Useful knobs:
 | Back to start | Y            | R             |
 | Tuning panel | View          | Tab           |
 | Pause      | Menu            | Esc           |
+| Mute sound | D-pad down      | M             |
 
 Units are metric: metres, kilograms, newtons. Physics runs at 120 Hz with Jolt.
 
@@ -188,3 +205,7 @@ The model only changes looks. The car still collides as a box. Keep these object
 - `brake_lights`: glow when you brake.
 
 The `preview_wheel` objects in the `.blend` only show the other three wheels there. They are not exported.
+
+## Credits
+
+- Tire skid: "Car tire squeal skid loop" by Tom Haigh (audible-edge), from [OpenGameArt](https://opengameart.org/content/car-tire-squeal-skid-loop), licensed [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/). Changed: pitched 25% lower, high end softened, and converted to 22 kHz mono.
