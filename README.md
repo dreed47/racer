@@ -17,7 +17,7 @@ godot --path .      # run the game
 - `track/`: places to drive. `track.gd` is what every track offers. `circuit.gd` builds a loop from straights and arcs in code. `blender_track.gd` loads a track made in Blender.
 - `tools/blender/`: Python scripts that build and export Blender tracks and the car model.
 - `modes/`: game modes. `time_trial/` has the lap timer, best-lap file, lap display and ghost car. `save_paths.gd` keeps tests away from your saved files.
-- `drivers/`: what controls a car: the player and the AI driver. `racing_line.gd` works out the AI's line and speeds.
+- `drivers/`: what controls a car: the player and the AI driver. `racing_line.gd` works out the AI's line and speeds. `learning_level.gd` sets how much the game helps you, and `track_guide.gd` draws the line and brake boards on the road.
 - `camera/`: chase camera.
 - `debug/`: on-screen readouts and the tuning panel.
 - `tests/`: headless checks.
@@ -78,6 +78,12 @@ godot --headless --path . --fixed-fps 120 -s tests/ai_check.gd
 
 Checks the AI driver: its racing line, a clean lap of Ridge at 90 % skill, the on/off key, the grid start and the skill slider. Takes about a minute. Touches no files.
 
+```sh
+godot --headless --path . -s tests/levels_check.gd
+```
+
+Checks the learning levels: anti-spin catches a flick, ABS stops the wheels locking, the Noob speed limit and auto-brake, the line and brake boards, the level saving, the AI skill following the level, the Level row in the tuning panel, and the best lap keeping its level. Writes only to a temp folder.
+
 ## Time trial
 
 The game starts on Ridge (`track/ridge/ridge.tscn`), a 2.6 km track with hills, a blind crest and a downhill hairpin.
@@ -118,6 +124,26 @@ A yellow roadster with the same physics as yours drives Ridge for you to race.
 - Its laps never count towards your times or ghost.
 - **AI skill** in the tuning panel sets how close to the grip limit it drives, from 30 % to 100 %. At 90 % it laps Ridge in about 94 s. Above 90 % it sometimes slides off. If it gets stuck or leaves the track, it's put back on its line.
 
+## Learning levels
+
+The level sets how much the game helps you drive. Pick it in the top row of the tuning panel (Tab or View). The game starts at Noob and remembers your choice.
+
+| Level | Help |
+|---|---|
+| Noob | Strong anti-spin, ABS, traction control, top speed 80 km/h, brakes for you before corners, coloured line |
+| Novice | Medium anti-spin, ABS, traction control, coloured line |
+| Experienced | Light anti-spin, traction control, BRAKE boards before big corners |
+| Expert | No help. Traction control is off too. |
+
+- Anti-spin catches the back of the car when it starts to swing out. It cuts power, brakes the outer front wheel and steers into the slide.
+- ABS eases the brakes when a wheel locks, so you can still steer.
+- The coloured line follows the racing line. Green: you can speed up. Yellow: ease off, a slower part is coming. Red: brake now.
+- At Noob, if you come into a corner too fast, the car brakes as much as needed. Brake harder yourself and your braking wins.
+- The AI car's skill follows the level: 50, 65, 80 or 90 %. The AI skill slider can still change it.
+- Changing the level cancels the lap you're on. Your best lap shows the level it was driven at, for example `Best 1:35.200 (Noob)`.
+- Steer assist stays a car setup setting at every level.
+- The level is kept in `user://settings.cfg`.
+
 ## Tire grip display
 
 Four boxes in the bottom-left corner show the tires, laid out like the car seen from above.
@@ -125,7 +151,9 @@ Four boxes in the bottom-left corner show the tires, laid out like the car seen 
 - Grey: gripping.
 - Yellow: near the limit. This is where the tire grips hardest.
 - Red: sliding or spinning. Red rear boxes mean wheelspin; red front boxes mean the car is running wide.
-- `TC` turns yellow while traction control is cutting power.
+- `TC` turns yellow while traction control is cutting power. It shows only while traction control is on.
+- `ABS` shows when ABS is on and turns yellow while it eases a brake.
+- `SPIN` shows when anti-spin is on and turns yellow while it catches a slide.
 
 ## Sound
 
@@ -147,7 +175,7 @@ To change the volume, select `CarSound` in `main.tscn` in the editor and set `Vo
 
 Useful knobs:
 
-- **Traction control**: cuts power when a rear wheel spins. The differential is open, so in tight corners the inside rear wheel spins up easily. On by default.
+- **Traction control**: cuts power when a rear wheel spins. The differential is open, so in tight corners the inside rear wheel spins up easily. On by default. The Expert level turns it off whatever this says.
 - **Traction slip**: how much wheelspin traction control allows. Higher lets the car slide more.
 - **Steer assist**: at 1, full stick turns the wheels only as far as the tires can use, so the car stops pushing wide. Set 0 for full lock at any speed.
 - **Steer assist slip**: higher lets full stick push the front past peak grip.

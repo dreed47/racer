@@ -1,7 +1,8 @@
 extends CanvasLayer
 ## Four tire boxes in the bottom-left corner, laid out like the car seen from above.
 ## Grey: gripping. Yellow: near the limit, where grip is highest. Red: sliding or spinning.
-## "TC" lights up while traction control is cutting power.
+## "TC" lights up while traction control is cutting power, "ABS" while anti-lock brakes ease a
+## wheel, and "SPIN" while anti-spin catches the back of the car.
 
 ## Slip levels (1 is the grip peak) where a box turns yellow, then red.
 const NEAR_LIMIT := 0.8
@@ -17,6 +18,8 @@ const GAP := Vector2(44, 70)
 
 var _canvas: Control
 var _tc: Label
+var _abs: Label
+var _spin: Label
 
 
 func _ready() -> void:
@@ -28,19 +31,32 @@ func _ready() -> void:
 	_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_canvas.draw.connect(_draw_tires)
 	add_child(_canvas)
-	_tc = Label.new()
-	_tc.text = "TC"
-	_tc.position = Vector2(TIRE.x * 2.0 + GAP.x + 16.0, TIRE.y + GAP.y / 2.0 - 16.0)
-	_tc.add_theme_font_size_override("font_size", 24)
-	_tc.add_theme_color_override("font_outline_color", Color.BLACK)
-	_tc.add_theme_constant_override("outline_size", 6)
-	_canvas.add_child(_tc)
+	var x := TIRE.x * 2.0 + GAP.x + 16.0
+	var middle := TIRE.y + GAP.y / 2.0 - 16.0
+	_tc = _aid_label("TC", Vector2(x, middle))
+	_abs = _aid_label("ABS", Vector2(x, middle - 36.0))
+	_spin = _aid_label("SPIN", Vector2(x, middle + 36.0))
 
 
 func _process(_delta: float) -> void:
 	_tc.add_theme_color_override("font_color", LIMIT if car.traction_cut > 0.05 else AIR)
-	_tc.visible = car.setup.traction_control
+	_tc.visible = car.setup.traction_control and car.traction_allowed
+	_abs.add_theme_color_override("font_color", LIMIT if car.abs_active else AIR)
+	_abs.visible = car.abs_brakes
+	_spin.add_theme_color_override("font_color", LIMIT if car.anti_spin_active else AIR)
+	_spin.visible = car.anti_spin > 0.0
 	_canvas.queue_redraw()
+
+
+func _aid_label(text: String, where: Vector2) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.position = where
+	label.add_theme_font_size_override("font_size", 24)
+	label.add_theme_color_override("font_outline_color", Color.BLACK)
+	label.add_theme_constant_override("outline_size", 6)
+	_canvas.add_child(label)
+	return label
 
 
 static func colour_for(slip_level: float) -> Color:

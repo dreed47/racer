@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
 [ext_resource type="PackedScene" path="res://track/ridge/ridge.tscn" id="2"]
@@ -13,6 +13,7 @@
 [ext_resource type="Script" path="res://car/sound/car_sound.gd" id="11"]
 [ext_resource type="Script" path="res://modes/time_trial/ghost_car.gd" id="12"]
 [ext_resource type="Script" path="res://drivers/ai_driver.gd" id="13"]
+[ext_resource type="Script" path="res://drivers/learning_level.gd" id="14"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1")
@@ -22,6 +23,13 @@ script = ExtResource("1")
 [node name="PlayerDriver" type="Node" parent="." node_paths=PackedStringArray("car")]
 script = ExtResource("4")
 car = NodePath("../Car")
+
+[node name="LearningLevel" type="Node" parent="." node_paths=PackedStringArray("car", "track", "ai", "time_trial")]
+script = ExtResource("14")
+car = NodePath("../Car")
+track = NodePath("../Track")
+ai = NodePath("../AiDriver")
+time_trial = NodePath("../TimeTrial")
 
 [node name="Car" parent="." instance=ExtResource("3")]
 
@@ -46,10 +54,11 @@ track = NodePath("../Track")
 script = ExtResource("12")
 time_trial = NodePath("../TimeTrial")
 
-[node name="LapHud" type="CanvasLayer" parent="." node_paths=PackedStringArray("time_trial", "ghost")]
+[node name="LapHud" type="CanvasLayer" parent="." node_paths=PackedStringArray("time_trial", "ghost", "level")]
 script = ExtResource("9")
 time_trial = NodePath("../TimeTrial")
 ghost = NodePath("../GhostCar")
+level = NodePath("../LearningLevel")
 
 [node name="ChaseCamera" type="Camera3D" parent="." node_paths=PackedStringArray("target")]
 script = ExtResource("5")
@@ -63,7 +72,8 @@ car = NodePath("../Car")
 script = ExtResource("10")
 car = NodePath("../Car")
 
-[node name="TuningPanel" type="CanvasLayer" parent="." node_paths=PackedStringArray("car", "ai")]
+[node name="TuningPanel" type="CanvasLayer" parent="." node_paths=PackedStringArray("car", "ai", "level")]
 script = ExtResource("7")
 car = NodePath("../Car")
 ai = NodePath("../AiDriver")
+level = NodePath("../LearningLevel")

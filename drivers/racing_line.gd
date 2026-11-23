@@ -33,7 +33,10 @@ var _cached_step := 0.0
 
 ## Builds the line for a track. edge_gap: how far the middle of the car stays from the road edge.
 ## corner_accel and brake_accel: sideways and braking grip to plan for, in m/s².
-func _init(track: Track, edge_gap := 1.6, corner := 9.0, brake := 8.0) -> void:
+## With no track the line is empty; copy() uses that.
+func _init(track: Track = null, edge_gap := 1.6, corner := 9.0, brake := 8.0) -> void:
+	if track == null:
+		return
 	var length := track.lap_length()
 	var n := maxi(8, roundi(length / STEP))
 	var step := length / n
@@ -51,6 +54,19 @@ func _init(track: Track, edge_gap := 1.6, corner := 9.0, brake := 8.0) -> void:
 	for i in n:
 		points[i] = _centre[i] + _right[i] * offsets[i]
 	plan_speeds(corner, brake)
+
+
+## A new line on the same points, with its own speeds. Much quicker than building one.
+func copy() -> RacingLine:
+	var other := RacingLine.new()
+	other.points = points.duplicate()
+	other.offsets = offsets.duplicate()
+	other.speeds = speeds.duplicate()
+	other.corner_accel = corner_accel
+	other.brake_accel = brake_accel
+	other._centre = _centre.duplicate()
+	other._right = _right.duplicate()
+	return other
 
 
 func size() -> int:
@@ -100,6 +116,16 @@ func direction(i: int) -> Vector3:
 	return d.normalized()
 
 
+## Middle of the road beside point i.
+func centre(i: int) -> Vector3:
+	return _centre[posmod(i, size())]
+
+
+## Flat unit vector across the road at point i, pointing right.
+func right(i: int) -> Vector3:
+	return _right[posmod(i, size())]
+
+
 ## Distance from point i to how far round the lap it is, in metres from the start line.
 func distance_at(i: int) -> float:
 	return i * _step_length()
@@ -123,7 +149,8 @@ func _smooth(limit: float) -> void:
 
 ## Sets each point's speed: the fastest the tires can hold through the bend there,
 ## then lowered so there's room to brake for every slower point ahead.
-func plan_speeds(corner: float, brake: float) -> void:
+## top: fastest speed anywhere, in m/s.
+func plan_speeds(corner: float, brake: float, top := TOP_SPEED) -> void:
 	corner_accel = corner
 	brake_accel = brake
 	var n := size()
@@ -143,8 +170,8 @@ func plan_speeds(corner: float, brake: float) -> void:
 		# Grip grows with load: g plus the push from a dip. Solve v² k = grip (g + v² dip) / g.
 		var mu := corner_accel / GRAVITY
 		var below := k - mu * dip
-		var v := TOP_SPEED if below <= 0.0 else sqrt(corner_accel / below)
-		speeds[i] = minf(v, TOP_SPEED)
+		var v := top if below <= 0.0 else sqrt(corner_accel / below)
+		speeds[i] = minf(v, top)
 	# Braking: walk backwards round the lap twice so the wrap at the start line is covered.
 	for j in range(2 * n - 1, -1, -1):
 		var i := j % n

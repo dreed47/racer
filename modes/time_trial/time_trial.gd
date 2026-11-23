@@ -15,6 +15,10 @@ var timer: LapTimer
 var records: LapRecords
 ## Fastest recorded lap on this track, or null if none yet.
 var ghost: GhostRecording
+## Learning level you're driving at (see LearningLevel). Kept with a new best lap.
+var level_name := ""
+## Learning level the best lap was driven at, or "" if not known.
+var best_level := ""
 
 var _recording: GhostRecording
 
@@ -30,6 +34,7 @@ func _ready() -> void:
 	var saved := records.best(track.track_id)
 	if not saved.is_empty():
 		timer.set_best(saved.time, saved.splits)
+		best_level = saved.level
 	ghost = GhostRecording.load_file(ghost_path())
 	timer.lap_finished.connect(_on_lap_finished)
 	timer.lap_started.connect(_on_lap_started)
@@ -54,6 +59,13 @@ func _on_lap_started() -> void:
 	_recording = GhostRecording.new(track.track_id)
 
 
+## Throws away the lap you're on, as a reset does, without moving the car.
+## The clock starts again next time you cross the line.
+func cancel_lap() -> void:
+	timer.cancel()
+	_recording = null
+
+
 func _on_car_placed() -> void:
 	timer.cancel()
 	_recording = null
@@ -64,7 +76,8 @@ func _on_lap_finished(time: float, _delta: float, is_best: bool) -> void:
 	_keep_ghost(time)
 	if not is_best:
 		return
-	var err := records.save_best(track.track_id, time, timer.best_splits)
+	best_level = level_name
+	var err := records.save_best(track.track_id, time, timer.best_splits, level_name)
 	if err != OK:
 		push_warning("Could not save best lap to %s: %s" % [records.path, error_string(err)])
 

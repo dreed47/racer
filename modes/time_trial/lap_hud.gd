@@ -11,6 +11,8 @@ const NEUTRAL := Color(1.0, 1.0, 1.0)
 @export var time_trial: TimeTrial
 ## Optional. Shows a note when the ghost is turned on or off.
 @export var ghost: GhostCar
+## Optional. Shows a note when the learning level changes.
+@export var level: LearningLevel
 
 var _lap: Label
 var _times: Label
@@ -22,8 +24,8 @@ func _ready() -> void:
 	var box := VBoxContainer.new()
 	box.anchor_left = 0.5
 	box.anchor_right = 0.5
-	box.offset_left = -200.0
-	box.offset_right = 200.0
+	box.offset_left = -300.0
+	box.offset_right = 300.0
 	box.offset_top = 12.0
 	add_child(box)
 	_lap = _label(box, 40)
@@ -36,12 +38,17 @@ func _ready() -> void:
 	timer.lap_voided.connect(func(): _show_note("Missed a checkpoint: lap not counted", SLOWER))
 	if ghost != null:
 		ghost.toggled.connect(_on_ghost_toggled)
+	if level != null:
+		level.changed.connect(func(_l): _show_note("Level: %s" % level.level_name(), NEUTRAL))
 
 
 func _process(delta: float) -> void:
 	var timer := time_trial.timer
 	_lap.text = LapTimer.format(timer.lap_time) if timer.running else "-:--.---"
-	_times.text = "Last %s     Best %s" % [_or_dashes(timer.last_lap), _or_dashes(timer.best_lap)]
+	var best := _or_dashes(timer.best_lap)
+	if timer.best_lap > 0.0 and time_trial.best_level != "":
+		best += " (%s)" % time_trial.best_level
+	_times.text = "Last %s     Best %s" % [_or_dashes(timer.last_lap), best]
 	_note_left -= delta
 	if not timer.running and _note_left <= 0.0:
 		# Steady prompt while waiting; a timed note (like a voided lap) shows first.

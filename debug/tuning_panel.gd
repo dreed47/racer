@@ -7,6 +7,8 @@ extends CanvasLayer
 @export var car: Car
 ## The AI driver, for its skill slider. That slider changes the AI only and is never saved.
 @export var ai: AiDriver
+## The learning level, for the Level row at the top. Kept in its own file, not the setup.
+@export var level: LearningLevel
 ## Where Save writes the setup and Revert reads it back from.
 @export_file("*.tres") var save_path := "res://car/roadster.tres"
 
@@ -17,6 +19,8 @@ var _values := {}  # Property name to its value Label.
 var _status: Label
 var _ai_slider: HSlider
 var _ai_value: Label
+var _level_slider: HSlider
+var _level_value: Label
 var _first_slider: HSlider
 var _panel: PanelContainer
 var _confirm: PanelContainer
@@ -135,6 +139,9 @@ func refresh() -> void:
 		_show_value(property)
 	for property in _toggles:
 		_toggles[property].set_pressed_no_signal(car.setup.get(property))
+	if _level_slider != null:
+		_level_slider.set_value_no_signal(level.level)
+		_level_value.text = level.level_name()
 	if _ai_slider != null:
 		_ai_slider.set_value_no_signal(ai.skill)
 		_ai_value.text = "%d %%" % ai.skill
@@ -196,6 +203,13 @@ func _build() -> void:
 	var rows := VBoxContainer.new()
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(rows)
+
+	if level != null:
+		var level_header := Label.new()
+		level_header.text = "Learning level (Noob gives the most help)"
+		level_header.add_theme_color_override("font_color", Color(1.0, 0.8, 0.3))
+		rows.add_child(level_header)
+		rows.add_child(_make_level_row())
 
 	for info in car.setup.get_property_list():
 		if info.usage & PROPERTY_USAGE_GROUP:
@@ -301,6 +315,37 @@ func _make_row(property: String, hint: String) -> Control:
 	_sliders[property] = slider
 	_values[property] = value_label
 	_show_value(property)
+	return row
+
+
+## Slider for the learning level, Noob to Expert. Kept apart from the setup sliders so Save
+## and the unsaved-changes question never see it. The level saves itself.
+func _make_level_row() -> Control:
+	var row := HBoxContainer.new()
+	var name_label := Label.new()
+	name_label.text = "Level"
+	name_label.custom_minimum_size.x = 260.0
+	row.add_child(name_label)
+	_level_slider = HSlider.new()
+	_level_slider.min_value = 0.0
+	_level_slider.max_value = LearningLevel.NAMES.size() - 1
+	_level_slider.step = 1.0
+	_level_slider.tick_count = LearningLevel.NAMES.size()
+	_level_slider.ticks_on_borders = true
+	_level_slider.gui_input.connect(_on_slider_input.bind(_level_slider))
+	_level_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_level_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_level_slider.value = level.level
+	row.add_child(_level_slider)
+	_level_value = Label.new()
+	_level_value.custom_minimum_size.x = 120.0
+	_level_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_level_value.text = level.level_name()
+	row.add_child(_level_value)
+	_level_slider.value_changed.connect(func(value: float) -> void:
+		level.set_level(int(value))
+		refresh())  # The AI's skill follows the level.
+	_first_slider = _level_slider
 	return row
 
 
