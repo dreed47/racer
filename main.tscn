@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://track/test_flat.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://debug/input_overlay.tscn" id="2"]
+
+[node name="Main" type="Node3D"]
+
+[node name="Track" parent="." instance=ExtResource("1")]
+
+[node name="Camera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.94, 0.342, 0, -0.342, 0.94, 0, 3, 8)
+
+[node name="InputOverlay" parent="." instance=ExtResource("2")]
