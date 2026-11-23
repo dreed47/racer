@@ -17,7 +17,7 @@ godot --path .      # run the game
 - `track/`: places to drive. `track.gd` is what every track offers. `circuit.gd` builds a loop from straights and arcs in code. `blender_track.gd` loads a track made in Blender.
 - `tools/blender/`: Python scripts that build and export Blender tracks and the car model.
 - `modes/`: game modes. `time_trial/` has the lap timer, best-lap file, lap display and ghost car. `save_paths.gd` keeps tests away from your saved files.
-- `drivers/`: what controls a car (player now, AI later).
+- `drivers/`: what controls a car: the player and the AI driver. `racing_line.gd` works out the AI's line and speeds.
 - `camera/`: chase camera.
 - `debug/`: on-screen readouts and the tuning panel.
 - `tests/`: headless checks.
@@ -72,6 +72,12 @@ godot --headless --path . -s tests/ghost_check.gd
 
 Checks the ghost car: recording and replay, saving and loading, keeping only the fastest lap, the see-through car following the lap, and the on/off key. Writes only to a temp folder.
 
+```sh
+godot --headless --path . --fixed-fps 120 -s tests/ai_check.gd
+```
+
+Checks the AI driver: its racing line, a clean lap of Ridge at 90 % skill, the on/off key, the grid start and the skill slider. Takes about a minute. Touches no files.
+
 ## Time trial
 
 The game starts on Ridge (`track/ridge/ridge.tscn`), a 2.6 km track with hills, a blind crest and a downhill hairpin.
@@ -100,6 +106,17 @@ A see-through, pale blue copy of the roadster replays your fastest lap on the tr
 - The ghost is your fastest recorded lap. Laps from before the ghost was added weren't recorded, so your first full lap now sets it.
 - G or D-pad up turns it on and off. A note on screen says which.
 - Ghosts are kept in `user://ghosts/`, one file per track, next to the best-lap file. Delete a file to clear that track's ghost.
+
+## AI driver
+
+A yellow roadster with the same physics as yours drives Ridge for you to race.
+
+- I or D-pad right turns it on and off. Turning it on puts both cars back on the grid, the AI car on your right. It waits until you move off.
+- It works out its own racing line from the track and slows for each corner. It changes gear itself.
+- It ignores you. The cars can bump.
+- It makes no sound, so it doesn't clash with your engine.
+- Its laps never count towards your times or ghost.
+- **AI skill** in the tuning panel sets how close to the grip limit it drives, from 30 % to 100 %. At 90 % it laps Ridge in about 94 s. Above 90 % it sometimes slides off. If it gets stuck or leaves the track, it's put back on its line.
 
 ## Tire grip display
 
@@ -152,6 +169,7 @@ Useful knobs:
 | Pause      | Menu            | Esc           |
 | Mute sound | D-pad down      | M             |
 | Ghost car on/off | D-pad up  | G             |
+| AI car on/off | D-pad right    | I             |
 
 Units are metric: metres, kilograms, newtons. Physics runs at 120 Hz with Jolt.
 

@@ -5,6 +5,8 @@ extends CanvasLayer
 ## Closing with unsaved changes asks first: save, keep driving on them unsaved, or undo them.
 
 @export var car: Car
+## The AI driver, for its skill slider. That slider changes the AI only and is never saved.
+@export var ai: AiDriver
 ## Where Save writes the setup and Revert reads it back from.
 @export_file("*.tres") var save_path := "res://car/roadster.tres"
 
@@ -13,6 +15,8 @@ var _toggles := {}  # Property name to CheckButton, for on/off settings.
 var _saved := {}  # Property name to its value in the saved file.
 var _values := {}  # Property name to its value Label.
 var _status: Label
+var _ai_slider: HSlider
+var _ai_value: Label
 var _first_slider: HSlider
 var _panel: PanelContainer
 var _confirm: PanelContainer
@@ -131,6 +135,9 @@ func refresh() -> void:
 		_show_value(property)
 	for property in _toggles:
 		_toggles[property].set_pressed_no_signal(car.setup.get(property))
+	if _ai_slider != null:
+		_ai_slider.set_value_no_signal(ai.skill)
+		_ai_value.text = "%d %%" % ai.skill
 
 
 func _remember_saved() -> void:
@@ -201,6 +208,12 @@ func _build() -> void:
 			rows.add_child(_make_row(info.name, info.hint_string))
 		elif info.usage & PROPERTY_USAGE_SCRIPT_VARIABLE and info.type == TYPE_BOOL:
 			rows.add_child(_make_toggle(info.name))
+	if ai != null:
+		var header := Label.new()
+		header.text = "AI driver (not saved)"
+		header.add_theme_color_override("font_color", Color(1.0, 0.8, 0.3))
+		rows.add_child(header)
+		rows.add_child(_make_ai_row())
 
 	var buttons := HBoxContainer.new()
 	outer.add_child(buttons)
@@ -288,6 +301,34 @@ func _make_row(property: String, hint: String) -> Control:
 	_sliders[property] = slider
 	_values[property] = value_label
 	_show_value(property)
+	return row
+
+
+## Slider for the AI's skill. Kept apart from the setup sliders so Save and the
+## unsaved-changes question never see it.
+func _make_ai_row() -> Control:
+	var row := HBoxContainer.new()
+	var name_label := Label.new()
+	name_label.text = "Skill"
+	name_label.custom_minimum_size.x = 260.0
+	row.add_child(name_label)
+	_ai_slider = HSlider.new()
+	_ai_slider.min_value = 30.0
+	_ai_slider.max_value = 100.0
+	_ai_slider.step = 1.0
+	_ai_slider.gui_input.connect(_on_slider_input.bind(_ai_slider))
+	_ai_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ai_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_ai_slider.value = ai.skill
+	row.add_child(_ai_slider)
+	_ai_value = Label.new()
+	_ai_value.custom_minimum_size.x = 100.0
+	_ai_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_ai_value.text = "%d %%" % ai.skill
+	row.add_child(_ai_value)
+	_ai_slider.value_changed.connect(func(value: float) -> void:
+		ai.skill = value
+		_ai_value.text = "%d %%" % value)
 	return row
 
 

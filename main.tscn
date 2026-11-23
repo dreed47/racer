@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
 [ext_resource type="PackedScene" path="res://track/ridge/ridge.tscn" id="2"]
@@ -12,6 +12,7 @@
 [ext_resource type="Script" path="res://debug/grip_display.gd" id="10"]
 [ext_resource type="Script" path="res://car/sound/car_sound.gd" id="11"]
 [ext_resource type="Script" path="res://modes/time_trial/ghost_car.gd" id="12"]
+[ext_resource type="Script" path="res://drivers/ai_driver.gd" id="13"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1")
@@ -23,6 +24,14 @@ script = ExtResource("4")
 car = NodePath("../Car")
 
 [node name="Car" parent="." instance=ExtResource("3")]
+
+[node name="AiDriver" type="Node" parent="." node_paths=PackedStringArray("car", "track", "player")]
+script = ExtResource("13")
+car = NodePath("../AiCar")
+track = NodePath("../Track")
+player = NodePath("../Car")
+
+[node name="AiCar" parent="." instance=ExtResource("3")]
 
 [node name="CarSound" type="Node" parent="." node_paths=PackedStringArray("car")]
 script = ExtResource("11")
@@ -54,6 +63,7 @@ car = NodePath("../Car")
 script = ExtResource("10")
 car = NodePath("../Car")
 
-[node name="TuningPanel" type="CanvasLayer" parent="." node_paths=PackedStringArray("car")]
+[node name="TuningPanel" type="CanvasLayer" parent="." node_paths=PackedStringArray("car", "ai")]
 script = ExtResource("7")
 car = NodePath("../Car")
+ai = NodePath("../AiDriver")

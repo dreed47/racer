@@ -77,7 +77,7 @@ func place_at(where: Transform3D) -> void:
 func _physics_process(delta: float) -> void:
 	var speed := forward_speed()
 
-	var lock := _steer_lock(absf(speed))
+	var lock := steer_lock(absf(speed))
 	_steer_now = move_toward(_steer_now, steer, setup.steer_rate * delta)
 	var angle := -_steer_now * lock
 	$WheelFL.steer_angle = angle
@@ -121,7 +121,7 @@ func _physics_process(delta: float) -> void:
 
 ## Wheel angle at full stick. With the assist on, full stick at speed gives about
 ## the angle of the tightest turn the tires can hold, so more stick never just scrubs.
-func _steer_lock(speed: float) -> float:
+func steer_lock(speed: float) -> float:
 	var full := deg_to_rad(setup.max_steer_deg)
 	var v := maxf(speed, 1.0)
 	var turn := atan(setup.wheelbase * setup.grip * 9.81 / (v * v))
