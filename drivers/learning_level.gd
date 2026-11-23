@@ -73,6 +73,11 @@ func _finish_setup() -> void:
 	_apply()
 
 
+## The line or boards on the road. L turns it on and off.
+func guide() -> TrackGuide:
+	return _guide
+
+
 ## Name of the current level, such as "Noob".
 func level_name() -> String:
 	return NAMES[level]

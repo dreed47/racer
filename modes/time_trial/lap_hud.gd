@@ -44,6 +44,7 @@ func _ready() -> void:
 		map.toggled.connect(func(on): _show_note("Map on" if on else "Map off", NEUTRAL))
 	if level != null:
 		level.changed.connect(func(_l): _show_note("Level: %s" % level.level_name(), NEUTRAL))
+		level.guide().toggled.connect(func(on): _show_note("Road guide on" if on else "Road guide off", NEUTRAL))
 
 
 func _process(delta: float) -> void:

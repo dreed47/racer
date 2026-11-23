@@ -201,6 +201,8 @@ func _check_guide() -> void:
 	_check(guide.mode == TrackGuide.LINE and guide._line_node.visible, "Noob shows the coloured line")
 	guide._draw_line()
 	_check(guide._mesh.get_surface_count() == 1, "line is drawn")
+	_check((guide._line_node.material_override as BaseMaterial3D).cull_mode == BaseMaterial3D.CULL_DISABLED,
+			"line shows from above whichever way it winds")
 	_check(guide.colour_at(0, 0.0, 0.0) == TrackGuide.GREEN, "line is green when slow")
 	_check(guide.colour_at(0, 0.0, level.line.speeds[0] + 5.0) == TrackGuide.RED, "red when too fast for it")
 	_check(guide.board_points.is_empty(), "no brake boards at Noob")
@@ -208,6 +210,36 @@ func _check_guide() -> void:
 	_check(guide.mode == TrackGuide.MARKERS and not guide._line_node.visible, "Experienced hides the line")
 	_check(guide.board_points.size() >= 4 and guide.board_points.size() < 30,
 			"Experienced has brake boards before the big corners (%d)" % guide.board_points.size())
+	_check(guide.count_points.size() > 0 and guide.count_points.size() <= 2 * guide.board_points.size(),
+			"100 and 50 boards come before them (%d)" % guide.count_points.size())
+	var step := level.line.distance_at(1)
+	var placed_right := true
+	for k in guide.count_points.size():
+		var metres := int(guide.count_labels[k])
+		var ahead := guide.count_points[k] + roundi(metres / step)
+		placed_right = placed_right and posmod(ahead, level.line.size()) in guide.board_points
+	_check(placed_right, "each count board stands its distance before a BRAKE board")
+	var heard: Array[bool] = []
+	guide.toggled.connect(func(on): heard.append(on))
+	var hud := _main.get_node("LapHud")
+	guide.toggle()
+	_check(not guide.visible and heard == [false] and hud._note.text == "Road guide off", "L turns the guide off")
+	level.set_level(LearningLevel.NOOB)
+	_check(not guide.visible, "guide stays off when the level changes")
+	guide.toggle()
+	_check(guide.visible and heard == [false, true] and hud._note.text == "Road guide on", "L turns it on again")
+	var key := false
+	for e in InputMap.action_get_events("toggle_guide"):
+		key = key or (e is InputEventKey and e.physical_keycode == KEY_L)
+	_check(key, "L is the guide key")
+	var clash := ""
+	for action in InputMap.get_actions():
+		if action == "toggle_guide" or action.begins_with("ui_"):
+			continue
+		for e in InputMap.action_get_events(action):
+			if e is InputEventKey and e.physical_keycode == KEY_L:
+				clash = action
+	_check(clash == "", "no other action uses L %s" % clash)
 	level.set_level(LearningLevel.EXPERT)
 	_check(guide.board_points.is_empty() and not guide._line_node.visible, "Expert shows nothing")
 

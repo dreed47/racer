@@ -1,6 +1,6 @@
 class_name Drivetrain
 extends RefCounted
-## Engine, automatic clutch, gearbox and open differential for the two rear wheels.
+## Engine, automatic clutch, gearbox and limited-slip differential for the two rear wheels.
 ## The car calls step() once per substep.
 
 ## Gear number: -1 reverse, 0 neutral, 1 and up forward.
@@ -80,6 +80,14 @@ func clutch_capacity() -> float:
 	return _setup.clutch_max_torque * clampf(bite, 0.0, 1.0)
 
 
+## Most torque the limited-slip diff can pass from the faster rear wheel to the slower one,
+## in N m. Grows with the drive torque going through it (drive_torque, at the axle), on and
+## off the throttle. A lock of 0.5 lets the slower wheel take up to 3 times the faster one's
+## torque; 1 lets it take all of it.
+func diff_lock_torque(drive_torque: float) -> float:
+	return _setup.diff_preload + _setup.diff_lock * absf(drive_torque) / 2.0
+
+
 ## Moves engine and rear wheels on by h seconds.
 ## left_torque and right_torque are the tire torques on each wheel; brakes are per wheel.
 func step(h: float, throttle: float, left: Wheel, right: Wheel,
@@ -101,6 +109,7 @@ func step(h: float, throttle: float, left: Wheel, right: Wheel,
 		var free_avg := avg + (t_engine * g + left_torque + right_torque) * h / inertia
 		var new_avg := Wheel.brake_spin(free_avg, (left_brake + right_brake) * h / inertia)
 		var new_diff := diff + (left_torque - right_torque) * h / (2.0 * i_wheel)
+		new_diff = Wheel.brake_spin(new_diff, diff_lock_torque(t_engine * g) * h / i_wheel)
 		left.spin = new_avg + new_diff
 		right.spin = new_avg - new_diff
 		engine_spin = new_avg * g
@@ -115,6 +124,16 @@ func step(h: float, throttle: float, left: Wheel, right: Wheel,
 	engine_spin = maxf(0.0, engine_spin + (t_engine - t_clutch) * h / i_engine)
 	left.spin_with(left_torque + t_clutch * g / 2.0, left_brake, i_wheel, h)
 	right.spin_with(right_torque + t_clutch * g / 2.0, right_brake, i_wheel, h)
+	_lock_diff(left, right, diff_lock_torque(t_clutch * g) * h / i_wheel)
 	var new_slip := engine_spin - (left.spin + right.spin) / 2.0 * g
 	if cap > 0.0 and (signf(new_slip) != signf(slip) or absf(new_slip) < 1.0):
 		clutch_locked = true
+
+
+## Pulls the two wheel speeds together by up to step (rad/s of difference per wheel),
+## leaving their average alone.
+static func _lock_diff(left: Wheel, right: Wheel, step: float) -> void:
+	var avg := (left.spin + right.spin) / 2.0
+	var diff := Wheel.brake_spin((left.spin - right.spin) / 2.0, step)
+	left.spin = avg + diff
+	right.spin = avg - diff

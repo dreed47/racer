@@ -83,13 +83,19 @@ Checks the AI driver: its racing line, a clean lap of Ridge at 90 % skill, the o
 godot --headless --path . -s tests/levels_check.gd
 ```
 
-Checks the learning levels: anti-spin catches a flick, ABS stops the wheels locking, the Noob speed limit and auto-brake, the line and brake boards, the level saving, the AI skill following the level, the Level row in the tuning panel, and the best lap keeping its level. Writes only to a temp folder.
+Checks the learning levels: anti-spin catches a flick, ABS stops the wheels locking, the Noob speed limit and auto-brake, the line, the brake and count-down boards, the L key, the level saving, the AI skill following the level, the Level row in the tuning panel, and the best lap keeping its level. Writes only to a temp folder.
 
 ```sh
 godot --headless --path . -s tests/map_check.gd
 ```
 
 Checks the course map: the track fits the box, north is up, your arrow sits on the road, and the on/off key works. Touches no files.
+
+```sh
+godot --headless --path . --fixed-fps 120 -s tests/diff_check.gd
+```
+
+Checks the limited-slip diff: in a tight full-throttle turn the inside rear wheel spins up with the diff open, much less at the default lock, and the car still turns. Touches no files.
 
 ```sh
 godot --headless --path . -s tests/dashboard_check.gd
@@ -166,12 +172,14 @@ The level sets how much the game helps you drive. Pick it in the top row of the 
 |---|---|
 | Noob | Strong anti-spin, ABS, traction control, top speed 80 km/h, brakes for you before corners, coloured line |
 | Novice | Medium anti-spin, ABS, traction control, coloured line |
-| Experienced | Light anti-spin, traction control, BRAKE boards before big corners |
+| Experienced | Light anti-spin, traction control, 100, 50 and BRAKE boards before big corners |
 | Expert | No help. Traction control is off too. |
 
 - Anti-spin catches the back of the car when it starts to swing out. It cuts power, brakes the outer front wheel and steers into the slide.
 - ABS eases the brakes when a wheel locks, so you can still steer.
 - The coloured line follows the racing line. Green: you can speed up. Yellow: ease off, a slower part is coming. Red: brake now.
+- The boards stand beside the road on the outside of the line. Start braking at the red BRAKE board.
+- L turns the line or boards off and on at any level, until you close the game.
 - At Noob, if you come into a corner too fast, the car brakes as much as needed. Brake harder yourself and your braking wins.
 - The AI car's skill follows the level: 50, 65, 80 or 90 %. The AI skill slider can still change it.
 - Changing the level cancels the lap you're on. Your best lap shows the level it was driven at, for example `Best 1:35.200 (Noob)`.
@@ -209,11 +217,13 @@ To change the volume, select `CarSound` in `main.tscn` in the editor and set `Vo
 
 Useful knobs:
 
-- **Traction control**: cuts power when a rear wheel spins. The differential is open, so in tight corners the inside rear wheel spins up easily. On by default. The Expert level turns it off whatever this says.
+- **Diff lock**: how hard the limited-slip diff ties the rear wheels together. 0 is an open diff: in tight corners the inside rear wheel spins up and the car can spin. 1 is locked: the car pushes straight on in corners. The default 0.25 stops the spin-up and still turns in well. From about 0.5 the car starts to run wide, and the AI car runs off the road.
+- **Diff preload**: ties the wheels together a little even off the throttle.
+- **Traction control**: cuts power when a rear wheel spins. On by default. The Expert level turns it off whatever this says.
 - **Traction slip**: how much wheelspin traction control allows. Higher lets the car slide more.
 - **Steer assist**: at 1, full stick turns the wheels only as far as the tires can use, so the car stops pushing wide. Set 0 for full lock at any speed.
 - **Steer assist slip**: higher lets full stick push the front past peak grip.
-- **Anti-roll bars**: a stiffer rear bar cuts understeer. Above about 5000 N/m the inside rear wheel spins up in hard corners and the car spins, because the differential is open.
+- **Anti-roll bars**: a stiffer rear bar cuts understeer. Too stiff and the inside rear wheel lifts and spins up in hard corners. More diff lock helps.
 
 ## Controls
 
@@ -233,6 +243,7 @@ Useful knobs:
 | Ghost car on/off | D-pad up  | G             |
 | AI car on/off | D-pad right    | I             |
 | Map on/off | D-pad left        | N             |
+| Road guide on/off | –        | L             |
 | Text readout on/off | –       | F3            |
 
 Units are metric: metres, kilograms, newtons. Physics runs at 120 Hz with Jolt.

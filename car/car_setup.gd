@@ -84,6 +84,16 @@ extends Resource
 ## Seconds the clutch stays open while changing gear.
 @export_range(0, 1, 0.01) var shift_time := 0.2
 
+@export_group("Differential")
+## How hard the limited-slip diff ties the rear wheels together, as a share of the drive torque.
+## 0 is an open diff: the inside wheel spins up easily in corners. 1 is fully locked: both
+## wheels turn together, which pushes the car straight on. The default 0.25 stops the inside
+## wheel spinning up and still lets the car turn in; 0.5 and up start to push wide.
+@export_range(0, 1, 0.01) var diff_lock := 0.25
+## Torque that ties the wheels together even with no drive, in N m. Keeps the car steady off
+## the throttle.
+@export_range(0, 200, 5) var diff_preload := 40.0
+
 @export_group("Brakes")
 ## Total brake torque over all four wheels, in N m.
 @export_range(500, 8000, 50) var brake_torque := 3000.0
