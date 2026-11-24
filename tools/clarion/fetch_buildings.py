@@ -149,7 +149,10 @@ def find_businesses(wanted: list) -> list:
     out = []
     for w in wanted:
         key = w["match"].lower()
-        hits = sorted((r for r in rows if r[0] and key in r[0].lower()), key=lambda r: -(r[5] or 0.0))
+        # A place named exactly the match wins over a longer name that contains it (Walmart over
+        # Walmart House Cleaning Services), then the map's confidence decides.
+        hits = sorted((r for r in rows if r[0] and key in r[0].lower()),
+                key=lambda r: (r[0].lower() != key, -(r[5] or 0.0)))
         entry = {"sign": w["sign"]}
         if hits:
             r = hits[0]

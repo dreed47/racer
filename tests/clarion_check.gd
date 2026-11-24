@@ -243,7 +243,9 @@ func _check_buildings() -> void:
 				if Vector2(p.x - spot[0], p.z - spot[2]).length() < t._half + 1.0:
 					on_road += 1
 					break
-	_check(signs.size() == 7, "a sign for each listed business (%d)" % signs.size())
+	var listed: Array = JSON.parse_string(FileAccess.get_file_as_string("res://tools/clarion/businesses.json"))
+	_check(signs.size() == listed.size(),
+			"a sign for each listed business (%d of %d)" % [signs.size(), listed.size()])
 	_check(labels == signs.size() + poles * 2, "business names on walls and both sides of road signs (%d)" % labels)
 	_check(on_road == 0, "no business sign on the road (%d)" % on_road)
 

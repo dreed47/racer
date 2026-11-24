@@ -5,5 +5,15 @@
   {"sign": "The Carpet Barn", "match": "The Carpet Barn"},
   {"sign": "Computer Support & Associates", "match": "Computer Support & Associates"},
   {"sign": "Clarion Animal Hospital", "match": "Clarion Animal Hospital"},
-  {"sign": "ALDI", "match": "Aldi"}
+  {"sign": "ALDI", "match": "Aldi"},
+  {"sign": "Sweet Basil", "match": "Sweet Basil"},
+  {"sign": "Bob's Sub & Sandwich Shop", "match": "Bob's Sub"},
+  {"sign": "Walmart", "match": "Walmart"},
+  {"sign": "Shippenville Healthcare", "match": "Shippenville Healthcare"},
+  {"sign": "Country Fair", "match": "Country Fair"},
+  {"sign": "Dairy Queen Grill & Chill", "match": "Dairy Queen"},
+  {"sign": "Jiffy Mart", "match": "Jiffy Mart"},
+  {"sign": "Perkins Restaurant & Bakery", "match": "Perkins Restaurant"},
+  {"sign": "Panera Bread", "match": "Panera Bread"},
+  {"sign": "NAPA Auto Parts", "match": "NAPA Auto Parts"}
 ]

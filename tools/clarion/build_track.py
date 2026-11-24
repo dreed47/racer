@@ -72,6 +72,17 @@ TREE_NEAR = 22.0
 TREE_FAR = 260.0
 TREE_BUILDING_CLEAR = 5.0  # Tree trunks at least this far from any wall.
 SEED = 322
+# Buildings the lidar fit gets wrong, by Overture id. The courthouse's clock tower pulled its
+# fitted hip roof up to the tower's height, so its body and tower come from the lidar points by
+# hand: a hip roof from 16 to 24 m (a raised basement and three floors), and a 9 m square brick
+# tower at the south-west end with walls to 42 m under a pyramid roof to 52 m (the lidar top,
+# 61 m, is its finial). The tower centre is a latitude and longitude.
+LANDMARKS = {
+    "fede1413-1507-4631-b100-b0061d4aaa7c": {
+        "eave": 16.0, "ridge": 24.0, "wall": (0.58, 0.30, 0.22), "top": (0.24, 0.24, 0.26),
+        "tower": {"centre": (41.21513, -79.385929), "size": 9.0, "eave": 42.0, "ridge": 52.0},
+    },
+}
 # Side streets: public roads that meet the loop, cut short and closed with a barrier.
 STREET_CLASSES = "motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street"
 STUB_HALF_WIDTH = 4.0
@@ -923,7 +934,7 @@ def load_footprints(cache: str, osm: dict, proj: Projection):
                 else:
                     height = building_height({"building": b.get("class") or ""})
                 roof = {"roof": "flat", "eave": height, "ridge": height}
-            found.append({"ring": np.array([proj.to_local(lat, lon) for lon, lat in b["ring"]]),
+            found.append({"id": b["id"], "ring": np.array([proj.to_local(lat, lon) for lon, lat in b["ring"]]),
                     "kind": b.get("class") or "", "subtype": b.get("subtype") or "", "roof": roof["roof"],
                     "ridge_along": roof.get("ridge_along", "long"), "eave": roof["eave"],
                     "ridge": roof["ridge"], "measured": b["id"] in roofs})
@@ -933,7 +944,7 @@ def load_footprints(cache: str, osm: dict, proj: Projection):
         if w.get("type") != "way" or len(w.get("geometry", ())) < 4:
             continue
         height = building_height(w["tags"])
-        found.append({"ring": np.array([proj.to_local(g["lat"], g["lon"]) for g in w["geometry"]]),
+        found.append({"id": "", "ring": np.array([proj.to_local(g["lat"], g["lon"]) for g in w["geometry"]]),
                 "kind": w["tags"].get("building", ""), "subtype": "", "roof": "flat", "ridge_along": "long",
                 "eave": height, "ridge": height, "measured": False})
     print("%d building outlines from OSM (no fetch_buildings.py files in the cache)" % len(found))
@@ -969,6 +980,9 @@ def place_buildings(footprints, proj: Projection, loop: Nearest, stubs, layout: 
             continue
         style = building_style(f, area, math.hypot(cx - town[0], cz - town[1]), road_gap)
         eave, ridge, roof = float(f["eave"]), float(f["ridge"]), f["roof"]
+        landmark = LANDMARKS.get(f["id"])
+        if landmark:
+            eave, ridge = landmark["eave"], landmark["ridge"]
         fill = area / max(length * width, 1e-6)
         if roof == "flat" and style == "house" and fill >= BOX_FILL and area >= 40.0:
             # Most houses here have pitched roofs that the lidar was too sparse or too leafy to see.
@@ -986,10 +1000,24 @@ def place_buildings(footprints, proj: Projection, loop: Nearest, stubs, layout: 
         low = min(ground)
         lift = float(np.mean(ground)) - low + BUILDING_SINK  # From the wall's foot up to the ground.
         wall, top = building_colours(style, roof, rng)
+        if landmark:
+            wall, top = landmark["wall"], landmark["top"]
         blocks.append({"ring": ring, "base": low - BUILDING_SINK, "eave": eave + lift, "ridge": ridge + lift,
                 "roof": roof, "ridge_along": f["ridge_along"], "box": (cx, cz, yaw, length, width),
                 "style": style, "wall": wall, "top": top, "area": area})
+        if landmark and "tower" in landmark:
+            blocks.append(landmark_tower(landmark, proj, yaw, blocks[-1], lift))
     return blocks
+
+
+def landmark_tower(landmark: dict, proj: Projection, yaw: float, body: dict, lift: float) -> dict:
+    """A square tower lined up with its building, with a pyramid roof (a hip on a square)."""
+    t = landmark["tower"]
+    tx, tz = proj.to_local(*t["centre"])
+    size = t["size"]
+    return {"ring": box_corners(tx, tz, yaw, size, size), "base": body["base"], "eave": t["eave"] + lift,
+            "ridge": t["ridge"] + lift, "roof": "hip", "ridge_along": "long", "box": (tx, tz, yaw, size, size),
+            "style": body["style"], "wall": body["wall"], "top": body["top"], "area": size * size}
 
 
 def ring_area(ring: np.ndarray) -> float:
