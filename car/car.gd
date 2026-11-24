@@ -24,6 +24,12 @@ const SPIN_STEER_GAIN := 0.8
 ## tire's peak slip ratio, then gives it back at ABS_RECOVER_RATE per second.
 const ABS_SLIP := 1.3
 const ABS_RECOVER_RATE := 6.0
+## Below this speed in m/s with no throttle, the brakes hold the car still, as a driver
+## would with a foot on the brake. Without it a stopped car creeps down the slightest slope,
+## because rolling resistance fades out at walking pace.
+const HOLD_SPEED := 0.5
+## Share of the full brake torque the hold uses: enough for a steep street.
+const HOLD_BRAKE := 0.3
 
 @export var setup: CarSetup
 
@@ -131,6 +137,9 @@ func _physics_process(delta: float) -> void:
 	if handbrake:
 		brakes[2] += setup.handbrake_torque / 2.0
 		brakes[3] += setup.handbrake_torque / 2.0
+	if throttle < 0.05 and absf(speed) < HOLD_SPEED:
+		for i in brakes.size():
+			brakes[i] = maxf(brakes[i], HOLD_BRAKE * setup.brake_torque / 4.0)
 
 	for wheel in wheels:
 		wheel.update_suspension(self, setup)

@@ -113,6 +113,8 @@ func _next_run() -> void:
 	var speed := 75.0 / 3.6
 	if run.test == "flick":
 		_car.anti_spin = run.anti
+		# Without a front anti-roll bar the car is loose enough to spin, so the aid has work to do.
+		_car.setup.anti_roll_front = 0.0
 	else:
 		_car.abs_brakes = run.abs
 		_car.setup.brake_torque *= 2.0
