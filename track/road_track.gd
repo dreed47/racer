@@ -32,6 +32,26 @@ const CHUNK_POINTS := 125
 const TILE_CELLS := 64
 const GRASS := {"grip": 0.6, "rolling_resistance": 0.06}
 const SOLID := {"grip": 0.6, "rolling_resistance": 0.0}
+const STUB_SHOULDER := 2.0
+const SKIRT_DEPTH := 0.3
+const BARRIER_ORANGE := Color(0.95, 0.42, 0.08)
+const BARRIER_WHITE := Color(0.95, 0.95, 0.92)
+const BARRICADE_WIDTH := 2.4
+const BOARD_HEIGHTS: Array[float] = [0.55, 0.95]
+const BOARD_DEPTH := 0.22
+const STRIPE_WIDTH := 0.3
+const CONE_AHEAD := 1.0
+const BARRIER_BOX_HEIGHT := 1.5
+const BARRIER_BOX_DEPTH := 1.6
+const SIGN_GREEN := Color(0.05, 0.4, 0.22)
+const SIGN_POST_COLOR := Color(0.6, 0.6, 0.6)
+const SIGN_HEIGHT := 3.4  # Top of the street-name plate above the street.
+const SIGN_PLATE_HEIGHT := 0.7  # Big enough to read at speed.
+const SIGN_POST_WIDTH := 0.1
+const SIGN_POST_SINK := 0.4
+const SIGN_CHAR_WIDTH := 0.3  # Plate length per letter; matches SIGN_CHAR_WIDTH in build_track.py.
+const SIGN_PLATE_PAD := 0.6  # Plate length past the words; matches SIGN_PLATE_PAD in build_track.py.
+const SIGN_PIXEL_SIZE := 0.011
 const BUILDING_COLORS: Array[Color] = [Color(0.62, 0.55, 0.48), Color(0.7, 0.68, 0.62), Color(0.5, 0.36, 0.3),
 		Color(0.78, 0.76, 0.7), Color(0.45, 0.47, 0.5), Color(0.66, 0.6, 0.52)]
 
@@ -72,6 +92,7 @@ func _ready() -> void:
 	if not _loaded:
 		return
 	_build_road()
+	_build_side_streets()
 	_build_terrain()
 	_build_buildings()
 	_build_trees()
@@ -221,6 +242,14 @@ func _build_road() -> void:
 	var inner := _half - EDGE_LINE_WIDTH
 	var outer := _half + SHOULDER_WIDTH
 	var down := Vector3.DOWN * SHOULDER_DROP
+	# Where a side street joins, the road's edge stays open: no edge line and no grass shoulder.
+	var cuts: Dictionary = _data.get("mouth_cuts", {})
+	var open_left := {}
+	var open_right := {}
+	for k in cuts.get("left", []):
+		open_left[int(k)] = true
+	for k in cuts.get("right", []):
+		open_right[int(k)] = true
 	for i in n:
 		if i % CHUNK_POINTS == 0:
 			if paint:
@@ -235,6 +264,7 @@ func _build_road() -> void:
 		var rb := _right(j)
 		road_faces.append_array(_quad(paint, a - ra * _half, a + ra * _half, b - rb * _half, b + rb * _half,
 				ROAD_COLOR, 0.0))
+		# The edge line stays solid past side streets, as on the real road.
 		_quad(paint, a - ra * _half, a - ra * inner, b - rb * _half, b - rb * inner, PAINT_COLOR, PAINT_HEIGHT)
 		_quad(paint, a + ra * inner, a + ra * _half, b + rb * inner, b + rb * _half, PAINT_COLOR, PAINT_HEIGHT)
 		if i % (DASH_POINTS + GAP_POINTS) < DASH_POINTS:
@@ -251,15 +281,210 @@ func _build_road() -> void:
 			if i % 20 == 0:
 				_add_pillar(a)
 		else:
-			shoulder_faces.append_array(_quad(paint, a - ra * outer + down, a - ra * _half,
-					b - rb * outer + down, b - rb * _half, SHOULDER_COLOR, -0.02))
-			shoulder_faces.append_array(_quad(paint, a + ra * _half, a + ra * outer + down,
-					b + rb * _half, b + rb * outer + down, SHOULDER_COLOR, -0.02))
+			if not open_left.has(i):
+				shoulder_faces.append_array(_quad(paint, a - ra * outer + down, a - ra * _half,
+						b - rb * outer + down, b - rb * _half, SHOULDER_COLOR, -0.02))
+			if not open_right.has(i):
+				shoulder_faces.append_array(_quad(paint, a + ra * _half, a + ra * outer + down,
+						b + rb * _half, b + rb * outer + down, SHOULDER_COLOR, -0.02))
 	_start_line(paint)
 	_add_mesh("Road%d" % chunk, paint)
 	_add_body("Road", road_faces, {"grip": road_grip, "rolling_resistance": 0.0})
 	_add_body("Shoulder", shoulder_faces, GRASS)
 	_add_body("Rail", rail_faces, SOLID)
+
+
+## Short pieces of the streets that meet the loop, each closed by striped barricades and cones.
+## The stub road is drivable up to the barricades, which stop the car like a wall.
+func _build_side_streets() -> void:
+	var list: Array = _data.get("side_streets", [])
+	if list.is_empty():
+		return
+	var paint := SurfaceTool.new()
+	paint.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var road_faces := PackedVector3Array()
+	var shoulder_faces := PackedVector3Array()
+	var barrier_body := _body("Barriers", SOLID)
+	var posts: Array[Transform3D] = []
+	var cones: Array[Transform3D] = []
+	var down := Vector3.DOWN * SHOULDER_DROP
+	for stub: Dictionary in list:
+		var flat: Array = stub.edges
+		var lefts := PackedVector3Array()
+		var rights := PackedVector3Array()
+		for k in range(0, flat.size(), 6):
+			lefts.append(Vector3(flat[k], flat[k + 1], flat[k + 2]))
+			rights.append(Vector3(flat[k + 3], flat[k + 4], flat[k + 5]))
+		var shoulder_from := int(stub.shoulder_from)
+		# Rounded paved corners between the stub and the loop's edge.
+		var corner_reach := [0.0, 0.0]
+		for corner: Dictionary in stub.get("corners", []):
+			corner_reach[int(corner.side)] = float(corner.reach)
+			var strip: Array = corner.strip
+			for k in range(0, strip.size() - 6, 6):
+				var o0 := Vector3(strip[k], strip[k + 1], strip[k + 2])
+				var i0 := Vector3(strip[k + 3], strip[k + 4], strip[k + 5])
+				var o1 := Vector3(strip[k + 6], strip[k + 7], strip[k + 8])
+				var i1 := Vector3(strip[k + 9], strip[k + 10], strip[k + 11])
+				# Corners on the two sides mirror each other; keep every quad facing up.
+				if (i0 - o0).cross(o1 - o0).y > 0.0:
+					road_faces.append_array(_quad(paint, o0, i0, o1, i1, ROAD_COLOR, 0.0))
+				else:
+					road_faces.append_array(_quad(paint, i0, o0, i1, o1, ROAD_COLOR, 0.0))
+		for k in lefts.size() - 1:
+			var bl := lefts[k]
+			var br := rights[k]
+			var fl := lefts[k + 1]
+			var fr := rights[k + 1]
+			road_faces.append_array(_quad(paint, bl, br, fl, fr, ROAD_COLOR, 0.0))
+			if k < shoulder_from:
+				# Near the loop the stub can sit a little above the ground; a grass-coloured skirt hides the gap.
+				# No skirt where a paved corner meets that edge.
+				var along := (k + 1) * float(_data.get("step", 2.0))
+				if along > corner_reach[0]:
+					_wall(paint, bl + Vector3.DOWN * SKIRT_DEPTH, fl + Vector3.DOWN * SKIRT_DEPTH, SKIRT_DEPTH,
+							SHOULDER_COLOR)
+				if along > corner_reach[1]:
+					_wall(paint, br + Vector3.DOWN * SKIRT_DEPTH, fr + Vector3.DOWN * SKIRT_DEPTH, SKIRT_DEPTH,
+							SHOULDER_COLOR)
+				continue
+			var out_b := (br - bl).normalized() * STUB_SHOULDER
+			var out_f := (fr - fl).normalized() * STUB_SHOULDER
+			shoulder_faces.append_array(_quad(paint, bl - out_b + down, bl, fl - out_f + down, fl,
+					SHOULDER_COLOR, -0.02))
+			shoulder_faces.append_array(_quad(paint, br, br + out_b + down, fr, fr + out_f + down,
+					SHOULDER_COLOR, -0.02))
+		_add_barrier(paint, barrier_body, stub, posts, cones)
+		_add_name_sign(paint, stub)
+	_add_mesh("SideStreetMesh", paint)
+	_add_body("SideStreets", road_faces, {"grip": road_grip, "rolling_resistance": 0.0})
+	_add_body("SideShoulders", shoulder_faces, GRASS)
+
+	var post_mesh := BoxMesh.new()
+	post_mesh.size = Vector3(0.1, 1.2, 0.1)
+	var post_multimesh := _multimesh(post_mesh, posts.size())
+	for k in posts.size():
+		post_multimesh.set_instance_transform(k, posts[k])
+	_add_multimesh("BarrierPosts", post_multimesh, BARRIER_WHITE)
+	var cone_mesh := CylinderMesh.new()
+	cone_mesh.top_radius = 0.04
+	cone_mesh.bottom_radius = 0.2
+	cone_mesh.height = 0.7
+	cone_mesh.radial_segments = 8
+	var band_mesh := CylinderMesh.new()
+	band_mesh.top_radius = 0.1
+	band_mesh.bottom_radius = 0.13
+	band_mesh.height = 0.15
+	band_mesh.radial_segments = 8
+	var cone_multimesh := _multimesh(cone_mesh, cones.size())
+	var band_multimesh := _multimesh(band_mesh, cones.size())
+	for k in cones.size():
+		cone_multimesh.set_instance_transform(k, cones[k].translated(Vector3.UP * 0.35))
+		band_multimesh.set_instance_transform(k, cones[k].translated(Vector3.UP * 0.42))
+	_add_multimesh("Cones", cone_multimesh, BARRIER_ORANGE)
+	_add_multimesh("ConeBands", band_multimesh, BARRIER_WHITE)
+
+
+## Three barricades across one stub, cones in front of them, a sign, and one solid box
+## around it all so the car stops there.
+func _add_barrier(paint: SurfaceTool, body: StaticBody3D, stub: Dictionary, posts: Array[Transform3D],
+		cones: Array[Transform3D]) -> void:
+	var b: Array = stub.barrier
+	var foot := Vector3(b[0], b[1], b[2])
+	var toward_loop := Vector3(b[3], 0.0, b[4]).normalized()
+	var right := Vector3(-toward_loop.z, 0.0, toward_loop.x)
+	var half := float(stub.half_width)
+	var spacing := (half * 2.0 - BARRICADE_WIDTH) / 2.0
+	for slot in [-1.0, 0.0, 1.0]:
+		var centre: Vector3 = foot + right * slot * spacing
+		var left_end := centre - right * BARRICADE_WIDTH / 2.0
+		for side in [0.15, BARRICADE_WIDTH - 0.15]:
+			posts.append(Transform3D(Basis.IDENTITY, left_end + right * side + Vector3.UP * 0.6))
+		for height in BOARD_HEIGHTS:
+			_striped_board(paint, left_end + Vector3.UP * height, right, toward_loop)
+	for k in 4:
+		var across := (k - 1.5) * half * 0.5
+		cones.append(Transform3D(Basis.IDENTITY, foot + toward_loop * CONE_AHEAD + right * across))
+
+	var sign_label := Label3D.new()
+	sign_label.text = "ROAD CLOSED"
+	sign_label.font_size = 48
+	sign_label.pixel_size = 0.006
+	sign_label.modulate = DARK_COLOR
+	sign_label.outline_modulate = BARRIER_WHITE
+	sign_label.outline_size = 24
+	sign_label.position = foot + Vector3.UP * 1.45 + toward_loop * 0.05
+	sign_label.basis = Basis(-right, Vector3.UP, toward_loop)
+	add_child(sign_label)
+
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(half * 2.0 + 1.0, BARRIER_BOX_HEIGHT, BARRIER_BOX_DEPTH)
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	collision.transform = Transform3D(Basis(-right, Vector3.UP, toward_loop),
+			foot + Vector3.UP * BARRIER_BOX_HEIGHT / 2.0 + toward_loop * (CONE_AHEAD / 2.0))
+	body.add_child(collision)
+
+
+## A green street-name sign on a post at the street's corner. The plate runs along the street,
+## so drivers on the loop read it as they pass. The name is on both faces.
+func _add_name_sign(paint: SurfaceTool, stub: Dictionary) -> void:
+	var spot: Array = stub.get("sign_post", [])
+	var text: String = stub.get("sign", "")
+	if spot.is_empty() or text.is_empty():
+		return
+	var foot := Vector3(spot[0], spot[1], spot[2])
+	var along := Vector3(spot[3], 0.0, spot[4]).normalized()
+	var across := Vector3(-along.z, 0.0, along.x)
+	var bottom := foot + Vector3.DOWN * SIGN_POST_SINK
+	var post_top := foot + Vector3.UP * SIGN_HEIGHT
+	var w := SIGN_POST_WIDTH / 2.0
+	_wall(paint, bottom - along * w, bottom + along * w, SIGN_HEIGHT + SIGN_POST_SINK, SIGN_POST_COLOR)
+	_wall(paint, bottom - across * w, bottom + across * w, SIGN_HEIGHT + SIGN_POST_SINK, SIGN_POST_COLOR)
+	var length := SIGN_CHAR_WIDTH * text.length() + SIGN_PLATE_PAD
+	var low := post_top + Vector3.DOWN * SIGN_PLATE_HEIGHT
+	_wall(paint, low - along * length / 2.0, low + along * length / 2.0, SIGN_PLATE_HEIGHT, SIGN_GREEN)
+	for side in [-1.0, 1.0]:
+		var facing: Vector3 = across * side
+		var label := Label3D.new()
+		label.text = text
+		label.font_size = 48
+		label.pixel_size = SIGN_PIXEL_SIZE
+		label.double_sided = false
+		label.modulate = BARRIER_WHITE
+		label.outline_size = 0
+		label.position = low + Vector3.UP * SIGN_PLATE_HEIGHT / 2.0 + facing * 0.03
+		label.basis = Basis(Vector3.UP.cross(facing), Vector3.UP, facing)
+		add_child(label)
+
+
+## One barricade board: slanted orange and white stripes from left_end along right.
+func _striped_board(paint: SurfaceTool, left_end: Vector3, right: Vector3, normal: Vector3) -> void:
+	var up := Vector3.UP * BOARD_DEPTH
+	var slant := BOARD_DEPTH * 0.8
+	var stripes := int(ceil(BARRICADE_WIDTH / STRIPE_WIDTH))
+	for k in stripes:
+		var u0 := k * STRIPE_WIDTH
+		var u1 := minf(u0 + STRIPE_WIDTH, BARRICADE_WIDTH)
+		# Bottom edge along the board, top edge shifted sideways for the slant, clipped to the ends.
+		var b0 := left_end + right * u0
+		var b1 := left_end + right * u1
+		var t0 := left_end + right * minf(u0 + slant, BARRICADE_WIDTH) + up
+		var t1 := left_end + right * minf(u1 + slant, BARRICADE_WIDTH) + up
+		if k == 0:
+			# The corner left of the first slanted stripe.
+			_triangle(paint, b0, b0 + up, t0, normal, BARRIER_WHITE)
+		var colour := BARRIER_ORANGE if k % 2 == 0 else BARRIER_WHITE
+		_triangle(paint, b0, t0, b1, normal, colour)
+		_triangle(paint, b1, t0, t1, normal, colour)
+
+
+## One triangle facing normal; the shared material shows it from both sides.
+func _triangle(paint: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, normal: Vector3, colour: Color) -> void:
+	for corner in [a, b, c]:
+		paint.set_color(colour)
+		paint.set_normal(normal)
+		paint.add_vertex(corner)
 
 
 ## A concrete pillar from under the deck down into the ground.

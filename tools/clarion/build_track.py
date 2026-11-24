@@ -4,7 +4,10 @@
 The loop: from US 322 and 5th Avenue (PA 68) in Clarion, PA, south on PA 68, west on I-80,
 off at the first exit, north on PA 66, then back east on US 322 to the start.
 
-Writes track/clarion/clarion.json (road, bridges, buildings, trees, terrain layout) and
+Every public street that meets the loop gets a short closed-off stub (side_streets in the
+data), ending at a barrier, so the junctions look real but the route can't be left.
+
+Writes track/clarion/clarion.json (road, side streets, bridges, buildings, trees, terrain layout) and
 track/clarion/terrain.bin (terrain heights as little-endian float32, row by row from north
 to south). The game reads only these two files, so it needs no network.
 
@@ -51,6 +54,27 @@ TREE_COUNT = 3500
 TREE_NEAR = 22.0
 TREE_FAR = 260.0
 SEED = 322
+# Side streets: public roads that meet the loop, cut short and closed with a barrier.
+STREET_CLASSES = "motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street"
+STUB_HALF_WIDTH = 4.0
+STUB_BARRIER = 36.0  # Barrier distance from the loop's centreline, along the street: 30 m past the edge.
+STUB_MAX = 150.0  # A ramp leaving at a shallow angle runs on until its barrier is clear of the loop.
+STUB_MAX_MOTORWAY = 450.0  # A motorway merging alongside the loop runs side by side much longer.
+STUB_FORK = 30.0  # Two streets leaving from the same junction may overlap this far along.
+STUB_FLARE = 6.0  # Radius of the rounded corner where a street meets the loop's edge.
+SIGN_OFFSET = 1.5  # Name sign post this far outside the street's edge.
+SIGN_CHAR_WIDTH = 0.3  # Name sign plate length per letter; matches RoadTrack.SIGN_CHAR_WIDTH.
+SIGN_PLATE_PAD = 0.6  # Plate length past the words; matches RoadTrack.SIGN_PLATE_PAD.
+CORNER_MAX = 12.0  # A rounded corner reaches at most this far along each edge.
+CORNER_STEPS = 12
+CORNER_DROP = 0.04  # Corner patch sits this far under the roads it joins.
+STUB_CLEAR = 13.0  # Barrier centre at least this far from the loop's centreline: 3 m past its edge.
+STUB_PAST = 2.0  # Street left behind the barrier, so the road doesn't stop right at it.
+STUB_SHIFT = 20.0  # Over this distance the street bends from its map junction to the smoothed loop.
+STUB_GRADE = 0.10  # Steepest slope a stub may have.
+STUB_FLAT = 10.0  # Terrain this close to a stub's centreline sits just under it.
+STUB_BLEND = 24.0
+STUB_KEEP = ROAD_HALF_WIDTH + 12.0  # Stub carving never raises ground this close to the loop.
 
 
 def main() -> None:
@@ -67,6 +91,9 @@ def main() -> None:
             '(%s,%s,%s,%s);out geom tags;' % ROAD_BOX)
     buildings = cached_overpass(cache, "buildings.json",
             '[out:json][timeout:90];way["building"](%s,%s,%s,%s);out geom tags;' % AREA_BOX)
+    streets = cached_overpass(cache, "streets.json",
+            '[out:json][timeout:90];way["highway"~"^(%s)(_link)?$"](%s,%s,%s,%s);out geom tags;'
+            % ((STREET_CLASSES,) + AREA_BOX))
     dem = Dem(cached_dem(cache))
 
     lat_lon, bridge_flags = route(roads)
@@ -89,11 +116,15 @@ def main() -> None:
     print("road heights %.1f to %.1f m, steepest grade %.1f %%" % (heights.min(), heights.max(),
             grade.max() * 100.0))
     terrain, layout = build_terrain(dem, proj, points, heights, bridge)
+    stubs = side_streets(streets, lat_lon, proj, points, heights, bridge, terrain, layout)
+    terrain = carve_stubs(terrain, layout, stubs, Nearest(points))
+    print("%d side streets closed off" % len(stubs))
     # Keep numbers small, with the lowest ground a little above y = 0 (falling below -20 resets).
     base = float(math.floor(terrain.min() / 10.0) * 10.0 - 10.0)
-    road_tree = Nearest(points)
+    all_roads = [points] + [s["centre"] for s in stubs]
+    road_tree = Nearest(np.vstack(all_roads))
     blocks = place_buildings(buildings, proj, road_tree, layout, terrain)
-    trees = place_trees(road_tree, layout, terrain, blocks)
+    trees = place_trees(Nearest(points), road_tree, layout, terrain, blocks)
     print("terrain %d x %d, %d buildings, %d trees" % (layout["width"], layout["depth"], len(blocks), len(trees)))
 
     (terrain - base).astype("<f4").tofile(os.path.join(out_dir, "terrain.bin"))
@@ -106,6 +137,8 @@ def main() -> None:
         "road_half_width": ROAD_HALF_WIDTH,
         "points": [round(float(v), 2) for p, h in zip(points, heights) for v in (p[0], h - base, p[1])],
         "bridges": bridge_ranges(bridge),
+        "side_streets": [stub_data(st, base) for st in stubs],
+        "mouth_cuts": mouth_cuts(stubs, points, bridge),
         "terrain": layout,
         "buildings": [[round(float(v), 2) for v in (b[0], b[1], b[2], b[3], b[4], b[5] - base, b[6])]
                 for b in blocks],
@@ -390,6 +423,390 @@ class Nearest:
         return (best, best_d) if best_d <= reach else (-1, float("inf"))
 
 
+# Side streets ---------------------------------------------------------------------------------
+
+
+def side_streets(streets: dict, route_nodes, proj: Projection, points: np.ndarray, heights: np.ndarray,
+        bridge: np.ndarray, terrain: np.ndarray, layout: dict):
+    """A short stub for each street leaving the loop: centreline, heights, edges and barrier."""
+    ways = streets["elements"]
+    for w in ways:
+        w["nodes"] = [(round(g["lat"], 7), round(g["lon"], 7)) for g in w["geometry"]]
+    on_route = set(route_nodes)
+    route_edges = {frozenset(e) for e in zip(route_nodes, route_nodes[1:] + route_nodes[:1])}
+    at_node = {}
+    for wi, w in enumerate(ways):
+        for k, n in enumerate(w["nodes"]):
+            at_node.setdefault(n, []).append((wi, k))
+    loop = Nearest(points)
+    reach = STUB_MAX_MOTORWAY + 15.0  # Map metres to follow, a little more than needed.
+
+    def walk(node, wi, k, step):
+        """Map points from a junction along one street, onto the next street at a dead end."""
+        out = [node]
+        followed = [wi]
+        length = 0.0
+        name = ways[wi]["tags"].get("name")
+        while length < reach:
+            k2 = k + step
+            nodes = ways[wi]["nodes"]
+            if not 0 <= k2 < len(nodes):
+                # The way ends: carry on along another one from this node, the same street first.
+                options = [(wj, kj, s) for wj, kj in at_node.get(nodes[k], ()) if wj != wi
+                        for s in (1, -1) if 0 <= kj + s < len(ways[wj]["nodes"])
+                        and frozenset((nodes[k], ways[wj]["nodes"][kj + s])) not in route_edges]
+                if not options:
+                    break
+                options.sort(key=lambda o: ways[o[0]]["tags"].get("name") != name)
+                wi, k, step = options[0]
+                followed.append(wi)
+                continue
+            a, b = proj.to_local(*nodes[k]), proj.to_local(*nodes[k2])
+            length += math.hypot(b[0] - a[0], b[1] - a[1])
+            out.append(nodes[k2])
+            if nodes[k2] in on_route:
+                break  # Back on the loop: a short link between two parts of it.
+            k = k2
+        return out, followed
+
+    stubs = []
+    taken = set()
+    for node in route_nodes:
+        for wi, k in at_node.get(node, ()):
+            for step in (1, -1):
+                k2 = k + step
+                nodes = ways[wi]["nodes"]
+                if not 0 <= k2 < len(nodes) or frozenset((node, nodes[k2])) in route_edges:
+                    continue
+                if (node, nodes[k2]) in taken:
+                    continue
+                taken.add((node, nodes[k2]))
+                limit = STUB_MAX_MOTORWAY if ways[wi]["tags"]["highway"] == "motorway" else STUB_MAX
+                path, followed = walk(node, wi, k, step)
+                stub = make_stub(path, proj, points, heights, bridge, loop, terrain, layout, stubs, limit)
+                if stub:
+                    stub["name"] = ways[wi]["tags"].get("name") or ways[wi]["tags"].get("ref") or ""
+                    stub["kind"] = ways[wi]["tags"]["highway"]
+                    stub["sign"] = sign_text([ways[f]["tags"] for f in followed])
+                    stub["sign_post"] = sign_spot(*stub.pop("sign_args"), stub["sign"])
+                    stubs.append(stub)
+    return stubs
+
+
+def sign_text(tags: list) -> str:
+    """Words for the street's name sign, from the first way along it that has a name or number.
+
+    A ramp is signed by the motorway it leads to, for example "I-80 ramp"."""
+    def ref(value):
+        first = value.split(";")[0].strip()
+        return first.replace("I ", "I-", 1) if first.startswith("I ") else first
+
+    if tags[0]["highway"].endswith("_link"):
+        motorway = next((ref(t["ref"]) for t in tags if t["highway"] == "motorway" and t.get("ref")), "")
+        return motorway + " ramp" if motorway else "Ramp"
+    for t in tags:
+        text = ref(t["ref"]) if t["highway"] == "motorway" and t.get("ref") else \
+                t.get("name") or ref(t.get("ref") or "")
+        if text:
+            return text
+    return ""
+
+
+def make_stub(path, proj, points, heights, bridge, loop: Nearest, terrain, layout, others, limit=STUB_MAX):
+    """One stub along the map points from its junction, or None if it doesn't fit."""
+    xz = np.array([proj.to_local(lat, lon) for lat, lon in path])
+    start, gap = loop.query(xz[0][0], xz[0][1], 15.0)
+    if start == -1:
+        return None  # The smoothed loop moved too far from this junction.
+    n = len(points)
+    if any(bridge[(start + k) % n] for k in range(-25, 26)):
+        return None  # No streets join a bridge.
+    seg = np.linalg.norm(np.diff(xz, axis=0), axis=1)
+    along = np.concatenate([[0.0], np.cumsum(seg)])
+    # Bend the street from its map junction onto the smoothed loop centreline.
+    shift = points[start] - xz[0]
+    xz = xz + shift * np.clip(1.0 - along / STUB_SHIFT, 0.0, 1.0)[:, None]
+    seg = np.linalg.norm(np.diff(xz, axis=0), axis=1)
+    along = np.concatenate([[0.0], np.cumsum(seg)])
+    total = min(along[-1], limit + STUB_PAST)
+    d = np.arange(0.0, total + 0.01, STEP)
+    centre = np.column_stack([np.interp(d, along, xz[:, 0]), np.interp(d, along, xz[:, 1])])
+
+    # The barrier goes at the first point far enough along and clear of the loop, so it is
+    # never on the loop or its edge. The street ends a little past it, also clear of the loop.
+    b = next((i for i, (x, z) in enumerate(centre)
+            if d[i] >= STUB_BARRIER and loop.query(x, z, STUB_CLEAR)[0] == -1), None)
+    if b is None:
+        return None  # The street ends (or the map ends) first.
+    end = b + int(round(STUB_PAST / STEP))
+    if end >= len(centre):
+        return None
+    centre, d = centre[:end + 1], d[:end + 1]
+    if any(loop.query(x, z, ROAD_HALF_WIDTH + STUB_HALF_WIDTH + 1.0)[0] != -1 for x, z in centre[b:]):
+        return None
+    # Clear of the stubs already made, past the first few metres (further for a fork from the same junction).
+    for o in others:
+        near = Nearest(o["centre"])
+        fork = o["start"] == start
+        if any(near.query(x, z, 2.0 * STUB_HALF_WIDTH)[0] != -1
+                for (x, z), s in zip(centre, d) if s > (STUB_FORK if fork else ROAD_HALF_WIDTH + 6.0)):
+            return None
+    if not all(inside_terrain(layout, x, z, 40.0) for x, z in centre):
+        return None
+
+    # Heights: the loop's own where the stub is on it, then the carved ground, kept gentle.
+    nearest = [loop.query(x, z, 60.0) for x, z in centre]
+    target = np.array([terrain_height(terrain, layout, x, z) + CARVE_DROP for x, z in centre])
+    fixed = np.array([dist < ROAD_HALF_WIDTH + 1.0 for _, dist in nearest])
+    for i, (j, _) in enumerate(nearest):
+        if fixed[i]:
+            target[i] = heights[j]
+    h = target.copy()
+    for i in range(1, len(h)):
+        if not fixed[i]:
+            rise = STUB_GRADE * (d[i] - d[i - 1])
+            h[i] = min(max(target[i], h[i - 1] - rise), h[i - 1] + rise)
+    for _ in range(3):
+        smoothed = h.copy()
+        smoothed[1:-1] = (h[:-2] + 2.0 * h[1:-1] + h[2:]) / 4.0
+        smoothed[-1] = (h[-2] + h[-1]) / 2.0
+        h = np.where(fixed, h, smoothed)
+
+    # Edges, level across. Any corner on or near the loop sits just under the loop's surface, so no
+    # stub triangle can rise through the loop's road.
+    forward = np.gradient(centre, axis=0)
+    forward /= np.maximum(np.linalg.norm(forward, axis=1), 1e-9)[:, None]
+    right = np.column_stack([-forward[:, 1], forward[:, 0]])
+    edges = []
+    shoulder_from = len(centre)
+    for i in range(len(centre)):
+        section = []
+        outside = True
+        for side in (-1.0, 1.0):
+            x, z = centre[i] + right[i] * side * STUB_HALF_WIDTH
+            j, dist = loop.query(x, z, 60.0)
+            y = min(h[i], heights[j] - 0.05) if dist < ROAD_HALF_WIDTH + 3.0 else h[i]
+            outside = outside and dist > ROAD_HALF_WIDTH + 4.5
+            section.append((x, y, z))
+        # A wide section near the fork can span the loop's road. Keep the whole
+        # section a little under the lowest loop point it crosses.
+        if d[i] < STUB_FORK:
+            (lx, ly, lz), (rx, ry, rz) = section
+            cap = None
+            for t in np.linspace(0.0, 1.0, 9):
+                j, dist = loop.query(lx + (rx - lx) * t, lz + (rz - lz) * t, 60.0)
+                if j >= 0 and dist < ROAD_HALF_WIDTH + 0.5:
+                    cap = heights[j] - 0.12 if cap is None else min(cap, heights[j] - 0.12)
+            if cap is not None:
+                section = [(lx, min(ly, cap), lz), (rx, min(ry, cap), rz)]
+        if outside and shoulder_from == len(centre):
+            shoulder_from = i
+        edges.append(section)
+
+    # Barrier near the end, facing back to the loop.
+    barrier = (centre[b][0], h[b], centre[b][1], -forward[b][0], -forward[b][1])
+    corners = [c for c in (make_corner(edges, d, forward, right, side, points, heights, loop)
+            for side in (0, 1)) if c is not None]
+    clear_from = max([c["reach"] for c in corners], default=ROAD_HALF_WIDTH) + 1.0
+    return {"start": start, "centre": centre, "heights": h, "edges": edges, "shoulder_from": shoulder_from,
+            "barrier": barrier, "corners": corners,
+            "sign_args": (centre, h, d, right, forward, loop, b, clear_from)}
+
+
+def make_corner(edges, d, forward, right, side, points, heights, loop: Nearest):
+    """Rounded paved corner between one edge of a stub and the loop's edge, so no grass shows there.
+
+    side 0 is the stub's left edge (as built), 1 its right. The corner is a curve from a point A
+    on the stub's edge to a point B on the loop's edge, with the sharp corner C, where the stub's
+    edge leaves the loop's edge, as its control point. The patch fills between the curve and the
+    two edges. Returns {"side", "outer", "inner", "reach"} or None, where reach is how far along the
+    stub the corner ends."""
+    n = len(points)
+    edge = np.array([edges[i][side] for i in range(len(edges))])  # (x, y, z)
+    sign = -1.0 if side == 0 else 1.0
+    dists = [loop.query(x, z, 60.0) for x, _, z in edge]
+    c = next((i for i, (j, dist) in enumerate(dists) if dist >= ROAD_HALF_WIDTH and d[i] > 0.0), None)
+    if c is None or c == 0:
+        return None
+    # Exact crossing of the loop's edge between sections c - 1 and c.
+    j0, d0 = dists[c - 1]
+    j1, d1 = dists[c]
+    if not math.isfinite(d0):
+        return None
+    t = (ROAD_HALF_WIDTH - d0) / max(d1 - d0, 1e-6)
+    t = min(max(t, 0.0), 1.0)
+    corner = edge[c - 1] + (edge[c] - edge[c - 1]) * t
+    d_c = d[c - 1] + (d[c] - d[c - 1]) * t
+    jc, _ = loop.query(corner[0], corner[2], 60.0)
+    u = forward[c]
+    tangent = points[(jc + 1) % n] - points[(jc - 1) % n]
+    tangent /= max(np.linalg.norm(tangent), 1e-9)
+    loop_right = np.array([-tangent[1], tangent[0]])
+    loop_side = 1.0 if np.dot(corner[::2] - points[jc], loop_right) >= 0.0 else -1.0
+    # Along the loop, away from the stub's middle.
+    away = 1.0 if np.dot(tangent, right[c] * sign) >= 0.0 else -1.0
+    v = tangent * away
+    angle = math.acos(min(max(float(np.dot(u, v)), -1.0), 1.0))
+    if angle > math.radians(170.0) or angle < math.radians(5.0):
+        return None
+    reach = min(STUB_FLARE / math.tan(angle / 2.0), CORNER_MAX)
+    if reach < 0.5:
+        return None
+
+    def stub_edge(dist):
+        return np.array([np.interp(dist, d, edge[:, k]) for k in range(3)])
+
+    def loop_edge(along):
+        """Point on the loop's edge, `along` metres from the corner, away from the stub."""
+        f = along / STEP
+        k = int(math.floor(f))
+        a = (jc + int(away) * k) % n
+        b = (jc + int(away) * (k + 1)) % n
+        out = []
+        for idx in (a, b):
+            tan = points[(idx + 1) % n] - points[(idx - 1) % n]
+            tan /= max(np.linalg.norm(tan), 1e-9)
+            r = np.array([-tan[1], tan[0]])
+            x, z = points[idx] + r * loop_side * ROAD_HALF_WIDTH
+            out.append(np.array([x, heights[idx], z]))
+        return out[0] + (out[1] - out[0]) * (f - k)
+
+    a_point = stub_edge(d_c + reach)
+    b_point = loop_edge(reach)
+    c_point = np.array([corner[0], 0.0, corner[2]])
+    outer, inner = [], []
+    for s in np.linspace(0.0, 1.0, CORNER_STEPS + 1):
+        p = (1 - s) ** 2 * a_point + 2 * (1 - s) * s * c_point + s * s * b_point
+        p[1] = a_point[1] + (b_point[1] - a_point[1]) * s
+        q = stub_edge(d_c + reach * (1.0 - 2.0 * s)) if s <= 0.5 else loop_edge(reach * (2.0 * s - 1.0))
+        # Just under both roads, so the patch never shows through either.
+        top = min(p[1], q[1]) - CORNER_DROP
+        outer.append((float(p[0]), top, float(p[2])))
+        inner.append((float(q[0]), top, float(q[2])))
+    return {"side": side, "outer": outer, "inner": inner, "reach": d_c + reach}
+
+
+def sign_spot(centre, h, d, right, forward, loop: Nearest, b, clear_from, text):
+    """Where the street's name sign stands: just past the rounded corner, off the road.
+
+    The plate runs along the street, so a driver on the loop sees it face on. The whole plate
+    stays clear of the loop and its corner. Returns (x, y, z, forward x, forward z), or None if
+    no spot is clear of the loop."""
+    half = (SIGN_CHAR_WIDTH * len(text) + SIGN_PLATE_PAD) / 2.0
+    # A ramp leaves the loop at a shallow angle, so its rounded corner can run almost to the
+    # barrier. Then the sign may stand beside the corner, on the side far from the loop.
+    for start, margin in ((clear_from, 2.0), (ROAD_HALF_WIDTH + 1.0, 8.0)):
+        for i in range(len(centre)):
+            if d[i] < start + half or i >= b:
+                continue
+            for side in (1.0, -1.0):
+                x, z = centre[i] + right[i] * side * (STUB_HALF_WIDTH + SIGN_OFFSET)
+                ends = [(x + forward[i][0] * k * half, z + forward[i][1] * k * half) for k in (-1.0, 0.0, 1.0)]
+                if all(loop.query(ex, ez, ROAD_HALF_WIDTH + margin)[0] == -1 for ex, ez in ends):
+                    return (x, h[i], z, forward[i][0], forward[i][1])
+    return None
+
+
+def mouth_cuts(stubs, points: np.ndarray, bridge: np.ndarray) -> dict:
+    """Loop segments, per side, whose grass shoulder a stub's mouth or rounded corners cover.
+
+    Segment i runs from point i to point i + 1. The road there leaves out its shoulder so the
+    street joins it without a strip of grass between them. The edge line stays."""
+    forward = np.roll(points, -1, axis=0) - np.roll(points, 1, axis=0)
+    forward /= np.maximum(np.linalg.norm(forward, axis=1), 1e-9)[:, None]
+    right = np.column_stack([-forward[:, 1], forward[:, 0]])
+    cuts = {"left": set(), "right": set()}
+    for stub in stubs:
+        polygons = [np.array([s[0][::2] for s in stub["edges"]] + [s[1][::2] for s in reversed(stub["edges"])])]
+        for c in stub["corners"]:
+            polygons.append(np.array([p[::2] for p in c["outer"]] + [p[::2] for p in reversed(c["inner"])]))
+        for polygon in polygons:
+            mark_cuts(polygon, points, right, bridge, cuts)
+    return {k: sorted(v) for k, v in cuts.items()}
+
+
+def mark_cuts(polygon: np.ndarray, points: np.ndarray, right: np.ndarray, bridge: np.ndarray, cuts: dict) -> None:
+    """Adds the loop segments whose shoulder this polygon covers."""
+    n = len(points)
+    lo, hi = polygon.min(axis=0) - 1.0, polygon.max(axis=0) + 1.0
+    for i in range(n):
+        j = (i + 1) % n
+        if bridge[i] or bridge[j]:
+            continue
+        mid = (points[i] + points[j]) / 2.0
+        r = right[i] + right[j]
+        r /= max(np.linalg.norm(r), 1e-9)
+        for side, key in ((-1.0, "left"), (1.0, "right")):
+            for offset in (0.5, 2.5):
+                p = mid + r * side * (ROAD_HALF_WIDTH + offset)
+                if (lo <= p).all() and (p <= hi).all() and inside_polygon(polygon, p):
+                    cuts[key].add(i)
+
+
+def inside_polygon(polygon: np.ndarray, p) -> bool:
+    x, z = p
+    xs, zs = polygon[:, 0], polygon[:, 1]
+    xn, zn = np.roll(xs, -1), np.roll(zs, -1)
+    crosses = (zs > z) != (zn > z)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        at = xs + (z - zs) * (xn - xs) / (zn - zs)
+    return bool(np.count_nonzero(crosses & (x < at)) % 2)
+
+
+def carve_stubs(terrain: np.ndarray, layout: dict, stubs, loop: Nearest) -> np.ndarray:
+    """Ground near each stub brought just under it, blending back to the ground around.
+
+    Ground close to the loop is only ever lowered here: raised, it would poke up through the loop's road."""
+    original = terrain
+    terrain = terrain.copy()
+    cell, x0, z0 = layout["cell"], layout["x0"], layout["z0"]
+    reach = int(math.ceil(STUB_BLEND / cell)) + 1
+    for stub in stubs:
+        rows, cols = terrain.shape
+        near = np.full(terrain.shape, np.inf)
+        stub_h = np.zeros(terrain.shape)
+        for (px, pz), ph in zip(stub["centre"], stub["heights"]):
+            ci = int(round((px - x0) / cell))
+            ri = int(round((pz - z0) / cell))
+            r_lo, r_hi = max(ri - reach, 0), min(ri + reach + 1, rows)
+            c_lo, c_hi = max(ci - reach, 0), min(ci + reach + 1, cols)
+            gx = x0 + np.arange(c_lo, c_hi) * cell
+            gz = z0 + np.arange(r_lo, r_hi) * cell
+            dist = np.hypot(gx[None, :] - px, gz[:, None] - pz)
+            block = near[r_lo:r_hi, c_lo:c_hi]
+            closer = dist < block
+            block[closer] = dist[closer]
+            stub_h[r_lo:r_hi, c_lo:c_hi][closer] = ph
+        t = np.clip((near - STUB_FLAT) / (STUB_BLEND - STUB_FLAT), 0.0, 1.0)
+        weight = 1.0 - t * t * (3.0 - 2.0 * t)
+        touched = weight > 0.0
+        flat = stub_h - CARVE_DROP
+        terrain[touched] = terrain[touched] * (1.0 - weight[touched]) + flat[touched] * weight[touched]
+    rows, cols = terrain.shape
+    for r, c in zip(*np.nonzero(terrain > original)):
+        if loop.query(x0 + c * cell, z0 + r * cell, STUB_KEEP)[0] >= 0:
+            terrain[r, c] = original[r, c]
+    return terrain
+
+
+def stub_data(stub: dict, base: float) -> dict:
+    return {
+        "name": stub["name"],
+        "edges": [round(float(v), 2) for section in stub["edges"] for (x, y, z) in section
+                for v in (x, y - base, z)],
+        "shoulder_from": stub["shoulder_from"],
+        "barrier": [round(float(v), 3) for v in (stub["barrier"][0], stub["barrier"][1] - base,
+                stub["barrier"][2], stub["barrier"][3], stub["barrier"][4])],
+        "half_width": STUB_HALF_WIDTH,
+        "corners": [{"side": c["side"], "reach": round(float(c["reach"]), 2),
+                "strip": [round(float(v), 2) for o, i in zip(c["outer"], c["inner"]) for p in (o, i)
+                for v in (p[0], p[1] - base, p[2])]} for c in stub["corners"]],
+        "sign": stub["sign"],
+        "sign_post": [round(float(v), 3) for v in (stub["sign_post"][0], stub["sign_post"][1] - base,
+                stub["sign_post"][2], stub["sign_post"][3], stub["sign_post"][4])] if stub["sign_post"] else [],
+    }
+
+
 # Terrain and scenery --------------------------------------------------------------------------
 
 
@@ -529,10 +946,10 @@ def convex_hull(pts: np.ndarray) -> np.ndarray:
     return np.array(lower[:-1] + upper[:-1])
 
 
-def place_trees(road: Nearest, layout: dict, terrain: np.ndarray, blocks):
-    """Random trees in a band either side of the road, clear of the road and the buildings."""
+def place_trees(loop: Nearest, road: Nearest, layout: dict, terrain: np.ndarray, blocks):
+    """Random trees in a band either side of the loop, clear of every road and the buildings."""
     rng = np.random.default_rng(SEED)
-    pts = road.points
+    pts = loop.points
     building_tree = Nearest(np.array([(b[0], b[1]) for b in blocks]) if blocks else np.zeros((0, 2)))
     trees = []
     tries = 0

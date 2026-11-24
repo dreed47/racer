@@ -61,7 +61,13 @@ Checks the Ridge track: gates, centreline, hills, surfaces, a timed lap and the 
 godot --headless --path . -s tests/clarion_check.gd
 ```
 
-Checks the Clarion loop: length, gates, hills, road surface, ground near the road, resets near the car, a timed lap and the car at the start. Takes about 10 s. Touches no files.
+Checks the Clarion loop: length, gates, hills, road surface, ground near the road, closed side streets, resets near the car, a timed lap and the car at the start. Takes about 10 s. Touches no files.
+
+```sh
+godot --headless --path . -s tests/reset_check.gd
+```
+
+Checks the Y button on the Clarion loop: a tap puts the car back on the road where it is, and holding it for 1 s takes the car back to the start. Touches no files.
 
 ```sh
 godot --headless --path . -s tests/menu_check.gd
@@ -153,12 +159,17 @@ Real roads round Clarion, PA, with real hill heights:
 
 - The road is 12 m wide, with a dashed yellow centre line and grass shoulders.
 - Rails line the bridges.
+- Every street that meets the loop, including the ramps at other I-80 exits, shows as a short stub about 30 m long. Each stub ends at striped barricades and cones marked ROAD CLOSED. You can drive up a stub, but the barricades stop the car like a wall.
+- Each stub meets the loop with paved, rounded corners, like a real junction. The loop keeps its solid white edge line across each one.
+- A big green street-name sign stands just past each corner, for example "BP Drive" or "I-80 ramp".
+- The start line is just past the Main Street junction in town.
+- PA 68 carries on past the I-80 on-ramp, and I-80 carries on past the PA 66 off-ramp, each to its own roadblock.
 - Trees and box buildings come from the map. They are solid.
 - Splits come at 3 checkpoints, about every 4 km.
-- Y puts you back on the road where you are, not at the start, and cancels the lap.
+- Tap Y to go back on the road where you are. Hold Y for 1 s to go back to the start. Either way cancels the lap.
 - It takes 2 to 3 s to build when you pick it.
 
-The data is in `track/clarion/clarion.json` (road, bridges, buildings, trees) and `track/clarion/terrain.bin` (ground heights). To make them again from fresh map data:
+The data is in `track/clarion/clarion.json` (road, bridges, side streets, buildings, trees) and `track/clarion/terrain.bin` (ground heights). To make them again from fresh map data:
 
 ```sh
 python3 tools/clarion/build_track.py CACHE_DIR
@@ -281,7 +292,7 @@ Useful knobs:
 | Handbrake  | A               | Space         |
 | Shift up   | RB              | E             |
 | Shift down | LB              | Q             |
-| Back to start | Y            | R             |
+| Back to start | Y (on Clarion: tap for back on the road, hold for the start) | R (same) |
 | Tuning panel | View          | Tab           |
 | Pause      | Menu            | Esc           |
 | Mute sound | D-pad down      | M             |

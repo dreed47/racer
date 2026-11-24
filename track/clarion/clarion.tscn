@@ -29,6 +29,7 @@ shader_parameter/line_width = 0.08
 script = ExtResource("1")
 track_id = "clarion"
 data_path = "res://track/clarion/clarion.json"
+start_distance = 14.0
 grass_material = SubResource("grass")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]

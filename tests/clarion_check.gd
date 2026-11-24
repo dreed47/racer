@@ -1,6 +1,6 @@
 extends SceneTree
 ## Headless check for the Clarion loop (a RoadTrack built from map data): length, gates, hills,
-## road surface, ground near the road, resets near the car, a timed lap and the car at the start.
+## road surface, ground near the road, closed side streets, resets near the car, a timed lap and the car at the start.
 ## Writes no files.
 ## Run: godot --headless --path . -s tests/clarion_check.gd
 
@@ -28,6 +28,7 @@ func _physics_process(_delta: float) -> bool:
 		# Collision shapes are in the physics world from the second tick.
 		_check_layout()
 		_check_surfaces()
+		_check_side_streets()
 		_check_reset()
 		_check_timer()
 	if _ticks < int(HZ * 1.5):
@@ -105,6 +106,89 @@ func _check_surfaces() -> void:
 	_check(holes == 0, "ground everywhere within 30 m of the road (%d holes)" % holes)
 	_check(road_gaps == 0, "road surface across the middle 8 m (%d misses)" % road_gaps)
 	_check(too_high == 0, "ground never pokes up through the road (%d places)" % too_high)
+
+
+## Side streets: drivable stubs that end at a solid barrier well clear of the loop.
+func _check_side_streets() -> void:
+	var t := _track
+	var space := t.get_world_3d().direct_space_state
+	var list: Array = t._data.get("side_streets", [])
+	_check(list.size() >= 40, "side streets closed off (%d)" % list.size())
+	var too_close := 0
+	var road_misses := 0
+	var not_blocked := 0
+	var too_high := 0
+	for stub: Dictionary in list:
+		var b: Array = stub.barrier
+		var foot := t.to_global(Vector3(b[0], b[1], b[2]))
+		var toward_loop := Vector3(b[3], 0.0, b[4]).normalized()
+		var nearest := INF
+		for p in t._points:
+			nearest = minf(nearest, Vector2(p.x - b[0], p.z - b[2]).length())
+		if nearest < 12.0:
+			too_close += 1
+		# A car driving up the stub towards the barrier runs into it.
+		var start := foot + toward_loop * 3.0 + Vector3.UP * 0.8
+		var query := PhysicsRayQueryParameters3D.create(start, foot + Vector3.UP * 0.8)
+		query.exclude = [_car.get_rid()]
+		var hit := space.intersect_ray(query)
+		if hit.is_empty() or String(hit.collider.name) != "Barriers":
+			not_blocked += 1
+		var flat: Array = stub.edges
+		for k in range(int(stub.shoulder_from) * 6, flat.size() - 6, 6):
+			var middle := Vector3((flat[k] + flat[k + 3]) / 2.0, (flat[k + 1] + flat[k + 4]) / 2.0,
+					(flat[k + 2] + flat[k + 5]) / 2.0)
+			if middle.distance_to(Vector3(b[0], b[1], b[2])) < 3.0:
+				continue
+			if _ground_at(space, t.to_global(middle)) != "SideStreets":
+				road_misses += 1
+			if t.ground_height(middle.x, middle.z) > middle.y + 0.3:
+				too_high += 1
+	_check(too_close == 0, "every barrier at least 12 m from the loop (%d too close)" % too_close)
+	_check(not_blocked == 0, "every side street blocked by a solid barrier (%d open)" % not_blocked)
+	_check(road_misses == 0, "side street road surface up to the barrier (%d misses)" % road_misses)
+	_check(too_high == 0, "ground never pokes up through a side street (%d places)" % too_high)
+
+	# Where a street joins, the road's edge is open: road surface, not grass, just past the edge.
+	var cuts: Dictionary = t._data.get("mouth_cuts", {})
+	var grass_at_mouth := 0
+	var mouth_points := 0
+	for key in ["left", "right"]:
+		var side := -1.0 if key == "left" else 1.0
+		for i in cuts.get(key, []):
+			var j := (int(i) + 1) % t._points.size()
+			var middle := (t._points[int(i)] + t._points[j]) / 2.0
+			var across := (t._right(int(i)) + t._right(j)).normalized()
+			var spot := middle + across * side * (t._half + 0.3)
+			mouth_points += 1
+			if _ground_at(space, t.to_global(spot)) == "Shoulder":
+				grass_at_mouth += 1
+	_check(mouth_points > 100, "street mouths leave the road's edge open (%d segments)" % mouth_points)
+	_check(grass_at_mouth == 0, "no strip of grass between the loop and a street (%d places)" % grass_at_mouth)
+
+	# Name signs: one per named street, on both faces, standing off the loop's road.
+	var signed := 0
+	var on_road := 0
+	var i80 := 0
+	for stub: Dictionary in list:
+		var spot: Array = stub.get("sign_post", [])
+		if String(stub.get("sign", "")).is_empty() or spot.is_empty():
+			continue
+		signed += 1
+		if stub.sign == "I-80":
+			i80 += 1
+		for p in t._points:
+			if Vector2(p.x - spot[0], p.z - spot[2]).length() < t._half + 1.0:
+				on_road += 1
+				break
+	var labels := 0
+	for child in t.get_children():
+		if child is Label3D and child.text != "ROAD CLOSED":
+			labels += 1
+	_check(signed == list.size(), "street-name signs on the side streets (%d of %d)" % [signed, list.size()])
+	_check(labels == signed * 2, "each name sign readable from both sides (%d labels)" % labels)
+	_check(on_road == 0, "no name sign on the loop's road (%d)" % on_road)
+	_check(i80 >= 2, "I-80 carries on past both of its ramps (%d stubs)" % i80)
 
 
 func _check_reset() -> void:
