@@ -52,8 +52,14 @@ const SIGN_POST_SINK := 0.4
 const SIGN_CHAR_WIDTH := 0.3  # Plate length per letter; matches SIGN_CHAR_WIDTH in build_track.py.
 const SIGN_PLATE_PAD := 0.6  # Plate length past the words; matches SIGN_PLATE_PAD in build_track.py.
 const SIGN_PIXEL_SIZE := 0.011
-const BUILDING_COLORS: Array[Color] = [Color(0.62, 0.55, 0.48), Color(0.7, 0.68, 0.62), Color(0.5, 0.36, 0.3),
-		Color(0.78, 0.76, 0.7), Color(0.45, 0.47, 0.5), Color(0.66, 0.6, 0.52)]
+const BUILDING_SHADER := preload("res://track/building.gdshader")
+const WINDOW_STYLES: Array[String] = ["house", "shop", "store", "civic"]  # Order the shader expects.
+const ROOF_OVERHANG := 0.3
+const BUSINESS_COLORS: Array[Color] = [Color(0.45, 0.08, 0.08), Color(0.08, 0.16, 0.42), Color(0.08, 0.3, 0.16),
+		Color(0.32, 0.18, 0.08)]
+const POLE_SIGN_HEIGHT := 5.0  # Bottom of a roadside business board above the ground.
+const POLE_SIGN_SCALE := 1.3  # Roadside board letters, against a street-name sign's.
+const POLE_POST_WIDTH := 0.2
 
 ## The data file, as JSON. Its terrain heights sit next to it.
 ## Read as soon as it is set, so the road is known before the track is ready: nodes that
@@ -95,6 +101,7 @@ func _ready() -> void:
 	_build_side_streets()
 	_build_terrain()
 	_build_buildings()
+	_build_businesses()
 	_build_trees()
 	_add_spawn()
 
@@ -658,34 +665,211 @@ func _build_buildings() -> void:
 	var list: Array = _data.get("buildings", [])
 	if list.is_empty():
 		return
-	var multimesh := MultiMesh.new()
-	multimesh.transform_format = MultiMesh.TRANSFORM_3D
-	multimesh.use_colors = true
-	multimesh.mesh = BoxMesh.new()
-	multimesh.instance_count = list.size()
-	var body := _body("Buildings", SOLID)
+	var paint := SurfaceTool.new()
+	paint.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var faces := PackedVector3Array()
+	for b: Dictionary in list:
+		_add_building(paint, faces, b)
+	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.name = "BuildingMeshes"
+	mesh_instance.mesh = paint.commit()
+	var material := ShaderMaterial.new()
+	material.shader = BUILDING_SHADER
+	mesh_instance.material_override = material
+	add_child(mesh_instance)
+	_add_body("Buildings", faces, SOLID)
+
+
+## One building: walls round its outline up to the eaves, then a flat, gable or hip roof.
+## Heights in the data are above the building's base.
+func _add_building(paint: SurfaceTool, faces: PackedVector3Array, b: Dictionary) -> void:
+	var flat: Array = b.ring
+	var ring := PackedVector2Array()
+	for k in range(0, flat.size(), 2):
+		ring.append(Vector2(flat[k], flat[k + 1]))
+	if ring.size() < 3:
+		return
+	var base := float(b.y)
+	var eave := float(b.eave)
+	var wall := Color(b.wall[0], b.wall[1], b.wall[2], (WINDOW_STYLES.find(b.style) + 1) / 8.0)
+	var top := Color(b.top[0], b.top[1], b.top[2], 0.0)
+	# Outward normals need the ring's winding.
+	var turn := 1.0 if _ring_area(ring) > 0.0 else -1.0
+	for k in ring.size():
+		var a2 := ring[k]
+		var c2 := ring[(k + 1) % ring.size()]
+		var length := a2.distance_to(c2)
+		if length < 0.01:
+			continue
+		var edge := (c2 - a2) / length
+		var normal := Vector3(edge.y, 0.0, -edge.x) * turn
+		var a := Vector3(a2.x, base, a2.y)
+		var c := Vector3(c2.x, base, c2.y)
+		var up := Vector3.UP * eave
+		var half := length / 2.0
+		var corners := [a, a + up, c, c, a + up, c + up]
+		var uvs := [Vector2(-half, 0.0), Vector2(-half, eave), Vector2(half, 0.0), Vector2(half, 0.0),
+				Vector2(-half, eave), Vector2(half, eave)]
+		for n in 6:
+			_building_vertex(paint, faces, corners[n], normal, wall, uvs[n], Vector2(eave, length))
+	var roof: String = b.get("roof", "flat")
+	if roof == "flat":
+		var lid := base + eave
+		var order := Geometry2D.triangulate_polygon(ring)
+		if order.is_empty():
+			for k in range(1, ring.size() - 1):
+				order.append_array([0, k, k + 1])
+		for n in order:
+			_building_vertex(paint, faces, Vector3(ring[n].x, lid, ring[n].y), Vector3.UP, top, Vector2.ZERO,
+					Vector2.ZERO)
+		return
+	# Sloped roofs sit on the outline's box: centre x, z, yaw, length, width.
+	var box: Array = b.box
+	var centre := Vector3(box[0], base, box[1])
+	var u := Vector3(cos(box[2]), 0.0, sin(box[2]))
+	var v := Vector3(-u.z, 0.0, u.x)
+	var along := u
+	var across := v
+	var half_along := float(box[3]) / 2.0
+	var half_across := float(box[4]) / 2.0
+	var long_ridge: bool = b.get("ridge_along", "long") == "long"
+	if roof == "hip":
+		long_ridge = box[3] >= box[4]
+	if not long_ridge:
+		along = v
+		across = u
+		half_along = float(box[4]) / 2.0
+		half_across = float(box[3]) / 2.0
+	if roof == "hip":
+		half_across = minf(half_across, half_along)
+	var rise := float(b.ridge) - eave
+	var pitch := rise / maxf(half_across, 0.1)
+	var o := ROOF_OVERHANG
+	var low := Vector3.UP * (eave - pitch * o)
+	var high := Vector3.UP * float(b.ridge)
+	# Ridge ends: right over the gable walls, or in from the ends for a hip.
+	var ridge_half := half_along + o if roof == "gable" else half_along - half_across
+	for side in [-1.0, 1.0]:
+		var eave_back: Vector3 = centre - along * (half_along + o) + across * side * (half_across + o) + low
+		var eave_front: Vector3 = centre + along * (half_along + o) + across * side * (half_across + o) + low
+		var ridge_back: Vector3 = centre - along * ridge_half + high
+		var ridge_front: Vector3 = centre + along * ridge_half + high
+		_roof_triangle(paint, faces, eave_back, eave_front, ridge_front, top)
+		_roof_triangle(paint, faces, eave_back, ridge_front, ridge_back, top)
+		var end: Vector3 = centre + along * side * half_along
+		if roof == "gable":
+			# The wall closes the triangle under each end of the roof.
+			var normal: Vector3 = along * side
+			var pane := Color(wall, 0.0)
+			for corner in [end - across * half_across + Vector3.UP * eave, end + across * half_across
+					+ Vector3.UP * eave, end + high]:
+				_building_vertex(paint, faces, corner, normal, pane, Vector2.ZERO, Vector2.ZERO)
+		else:
+			var tip: Vector3 = centre + along * side * ridge_half + high
+			var corner_out: Vector3 = centre + along * side * (half_along + o) + low
+			_roof_triangle(paint, faces, corner_out - across * (half_across + o),
+					corner_out + across * (half_across + o), tip, top)
+
+
+func _roof_triangle(paint: SurfaceTool, faces: PackedVector3Array, a: Vector3, b: Vector3, c: Vector3,
+		colour: Color) -> void:
+	var normal := (b - a).cross(c - a).normalized()
+	if normal.y < 0.0:
+		normal = -normal
+	for corner in [a, b, c]:
+		_building_vertex(paint, faces, corner, normal, colour, Vector2.ZERO, Vector2.ZERO)
+
+
+func _building_vertex(paint: SurfaceTool, faces: PackedVector3Array, where: Vector3, normal: Vector3,
+		colour: Color, uv: Vector2, uv2: Vector2) -> void:
+	paint.set_color(colour)
+	paint.set_normal(normal)
+	paint.set_uv(uv)
+	paint.set_uv2(uv2)
+	paint.add_vertex(where)
+	faces.append(where)
+
+
+func _ring_area(ring: PackedVector2Array) -> float:
+	var area := 0.0
+	for k in ring.size():
+		var a := ring[k]
+		var b := ring[(k + 1) % ring.size()]
+		area += a.x * b.y - b.x * a.y
+	return area / 2.0
+
+
+## Signs for the listed businesses: one on the wall that faces the road, and a tall one on two
+## posts by the road when that wall is set back. Plain words, no logos.
+func _build_businesses() -> void:
+	var list: Array = _data.get("businesses", [])
+	if list.is_empty():
+		return
+	var holder := Node3D.new()
+	holder.name = "BusinessSigns"
+	add_child(holder)
+	var paint := SurfaceTool.new()
+	paint.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var faces := PackedVector3Array()
 	for i in list.size():
-		var b: Array = list[i]
-		# Centre x, z, yaw, length, width, base, height. Yaw turns length from +x towards +z.
-		var basis := Basis(Vector3.UP, -float(b[2]))
-		var centre := Vector3(b[0], float(b[5]) + float(b[6]) / 2.0, b[1])
-		var size := Vector3(b[3], b[6], b[4])
-		multimesh.set_instance_transform(i, Transform3D(basis.scaled_local(size), centre))
-		multimesh.set_instance_color(i, BUILDING_COLORS[i % BUILDING_COLORS.size()])
-		var box := BoxShape3D.new()
-		box.size = size
-		var collision := CollisionShape3D.new()
-		collision.shape = box
-		collision.transform = Transform3D(basis, centre)
-		body.add_child(collision)
-	var material := StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.roughness = 0.95
-	var instance := MultiMeshInstance3D.new()
-	instance.name = "BuildingMeshes"
-	instance.multimesh = multimesh
-	instance.material_override = material
-	add_child(instance)
+		var biz: Dictionary = list[i]
+		var colour := BUSINESS_COLORS[i % BUSINESS_COLORS.size()]
+		var text: String = biz.text
+		var w: Array = biz.wall
+		var letters := float(biz.get("scale", 1.0))
+		var out := Vector3(w[3], 0.0, w[4]).normalized()
+		_business_plate(paint, holder, Vector3(w[0], w[1], w[2]), out, float(biz.width),
+				SIGN_PLATE_HEIGHT * letters, letters, text, colour, false)
+		var pole: Array = biz.get("pole", [])
+		if pole.is_empty():
+			continue
+		var foot := Vector3(pole[0], pole[1], pole[2])
+		var ahead := Vector3(pole[3], 0.0, pole[4]).normalized()
+		var across := Vector3(-ahead.z, 0.0, ahead.x)
+		if across.dot(foot - _nearest_point(foot)) < 0.0:
+			across = -across
+		var width := SIGN_CHAR_WIDTH * POLE_SIGN_SCALE * text.length() + SIGN_PLATE_PAD
+		var height := SIGN_PLATE_HEIGHT * POLE_SIGN_SCALE
+		# Keep the whole board off the road: it grows away from it.
+		var middle := foot + across * maxf(width / 2.0 - 3.0, 0.0)
+		for end in [-1.0, 1.0]:
+			var post: Vector3 = middle + across * end * (width / 2.0 - 0.4) + Vector3.DOWN * SIGN_POST_SINK
+			var reach := POLE_SIGN_HEIGHT + height + SIGN_POST_SINK
+			var thick := POLE_POST_WIDTH / 2.0
+			faces.append_array(_wall(paint, post - ahead * thick, post + ahead * thick, reach, SIGN_POST_COLOR))
+			faces.append_array(_wall(paint, post - across * thick, post + across * thick, reach, SIGN_POST_COLOR))
+		_business_plate(paint, holder, middle + Vector3.UP * (POLE_SIGN_HEIGHT + height / 2.0), ahead, width,
+				height, POLE_SIGN_SCALE, text, colour, true)
+	_add_mesh("BusinessSignMeshes", paint)
+	_add_body("BusinessSignPosts", faces, SOLID)
+
+
+## A coloured board centred on a place, facing out, with the words on its front (and back).
+func _business_plate(paint: SurfaceTool, holder: Node3D, centre: Vector3, out: Vector3, width: float,
+		height: float, letters: float, text: String, colour: Color, both_sides: bool) -> void:
+	var side := Vector3.UP.cross(out)
+	var bottom := centre + Vector3.DOWN * height / 2.0
+	_wall(paint, bottom - side * width / 2.0, bottom + side * width / 2.0, height, colour)
+	for facing in ([out, -out] if both_sides else [out]):
+		var label := Label3D.new()
+		label.name = "BusinessName"
+		label.text = text
+		label.font_size = 48
+		label.pixel_size = SIGN_PIXEL_SIZE * letters
+		label.double_sided = false
+		label.modulate = BARRIER_WHITE
+		label.outline_size = 0
+		label.position = centre + facing * 0.03
+		label.basis = Basis(Vector3.UP.cross(facing), Vector3.UP, facing)
+		holder.add_child(label)
+
+
+func _nearest_point(where: Vector3) -> Vector3:
+	var best := _points[0]
+	for p in _points:
+		if Vector2(p.x - where.x, p.z - where.z).length_squared() < Vector2(best.x - where.x, best.z - where.z).length_squared():
+			best = p
+	return best
 
 
 func _build_trees() -> void:

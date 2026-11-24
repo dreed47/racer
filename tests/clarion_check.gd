@@ -29,6 +29,7 @@ func _physics_process(_delta: float) -> bool:
 		_check_layout()
 		_check_surfaces()
 		_check_side_streets()
+		_check_buildings()
 		_check_reset()
 		_check_timer()
 	if _ticks < int(HZ * 1.5):
@@ -71,9 +72,7 @@ func _check_layout() -> void:
 		last = d
 	_check(in_order, "gates are in driving order")
 	var trees := t.find_child("TreeCrowns", true, false) as MultiMeshInstance3D
-	var buildings := t.find_child("BuildingMeshes", true, false) as MultiMeshInstance3D
 	_check(trees != null and trees.multimesh.instance_count > 500, "trees along the road")
-	_check(buildings != null and buildings.multimesh.instance_count > 50, "buildings in town")
 
 
 func _check_surfaces() -> void:
@@ -189,6 +188,64 @@ func _check_side_streets() -> void:
 	_check(labels == signed * 2, "each name sign readable from both sides (%d labels)" % labels)
 	_check(on_road == 0, "no name sign on the loop's road (%d)" % on_road)
 	_check(i80 >= 2, "I-80 carries on past both of its ramps (%d stubs)" % i80)
+
+
+## Buildings: real outlines with sensible heights, solid to drive into, and the business signs.
+func _check_buildings() -> void:
+	var t := _track
+	var space := t.get_world_3d().direct_space_state
+	var list: Array = t._data.get("buildings", [])
+	var mesh := t.find_child("BuildingMeshes", true, false) as MeshInstance3D
+	_check(list.size() > 500, "buildings in town (%d)" % list.size())
+	_check(mesh != null and mesh.mesh.get_faces().size() > list.size() * 12, "every building drawn")
+	var odd := 0
+	var sloped := 0
+	var roof_misses := 0
+	for k in list.size():
+		var b: Dictionary = list[k]
+		var top := float(b.get("ridge", b.eave))
+		if float(b.eave) < 2.0 or float(b.eave) > 60.0 or top < float(b.eave):
+			odd += 1
+		if b.has("roof"):
+			sloped += 1
+		# Every tenth building: a ray from above lands on it, about as high as its top.
+		if k % 10 != 0:
+			continue
+		var ring: Array = b.ring
+		var middle := Vector2.ZERO
+		for n in range(0, ring.size(), 2):
+			middle += Vector2(ring[n], ring[n + 1])
+		middle /= ring.size() / 2.0
+		var from := t.to_global(Vector3(middle.x, float(b.y) + top + 20.0, middle.y))
+		var query := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * (top + 40.0))
+		query.exclude = [_car.get_rid()]
+		var hit := space.intersect_ray(query)
+		if hit.is_empty() or String(hit.collider.name) != "Buildings":
+			roof_misses += 1
+	_check(odd == 0, "building heights 2 to 60 m, ridge above the eaves (%d odd)" % odd)
+	_check(sloped > list.size() / 4, "many sloped roofs (%d of %d)" % [sloped, list.size()])
+	# A few outlines are L or U shaped, so the middle can be outside them.
+	_check(roof_misses < list.size() / 50, "buildings are solid from above (%d misses)" % roof_misses)
+
+	var signs: Array = t._data.get("businesses", [])
+	var holder := t.get_node_or_null("BusinessSigns")
+	var labels := holder.get_child_count() if holder != null else 0
+	var poles := 0
+	var on_road := 0
+	for biz: Dictionary in signs:
+		for key in ["wall", "pole"]:
+			var spot: Array = biz.get(key, [])
+			if spot.is_empty():
+				continue
+			if key == "pole":
+				poles += 1
+			for p in t._points:
+				if Vector2(p.x - spot[0], p.z - spot[2]).length() < t._half + 1.0:
+					on_road += 1
+					break
+	_check(signs.size() == 7, "a sign for each listed business (%d)" % signs.size())
+	_check(labels == signs.size() + poles * 2, "business names on walls and both sides of road signs (%d)" % labels)
+	_check(on_road == 0, "no business sign on the road (%d)" % on_road)
 
 
 func _check_reset() -> void:

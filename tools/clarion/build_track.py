@@ -15,13 +15,20 @@ Downloads go into a cache folder and are reused on the next run:
     python3 tools/clarion/build_track.py CACHE_DIR
 Needs numpy and Pillow.
 
-Map data (c) OpenStreetMap contributors, ODbL. Heights: USGS 3D Elevation Program, public domain.
+Buildings come from tools/clarion/fetch_buildings.py when its files are in the cache (true
+outlines, lidar heights and roofs, business signs); without them, OSM outlines and guessed
+heights are used.
+
+Map data (c) OpenStreetMap contributors, ODbL. Building outlines: Overture Maps Foundation
+(ODbL and CDLA Permissive 2.0, including Microsoft building footprints). Heights and roofs:
+USGS 3D Elevation Program ground and lidar, public domain.
 """
 
 import heapq
 import json
 import math
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -48,11 +55,22 @@ CARVE_FLAT = 21.0  # Terrain this close to the centreline sits just under the ro
 CARVE_BLEND = 48.0  # Terrain blends back to the real ground by this distance.
 CARVE_DROP = 0.3  # How far the flat terrain sits under the road.
 BRIDGE_CLEARANCE = 2.0  # Terrain under a bridge stays at least this far under the deck.
-BUILDING_RANGE = 160.0  # Keep buildings within this distance of the road.
+BUILDING_RANGE = 250.0  # Keep buildings within this distance of the road.
 ROAD_CLEAR = 9.0  # No building or tree comes closer than this to the centreline.
+STUB_BUILDING_CLEAR = 6.5  # Buildings may come this close to a side street's centreline...
+MOUTH_CLEAR = 16.0  # ...except this close to the loop, where its rounded corners are.
+BUILDING_SINK = 0.5  # Walls start this far under the lowest ground at their corners.
+BOX_FILL = 0.85  # A sloped roof needs an outline that fills this much of its box.
+HOUSE_PITCH = 0.5  # Guessed roof slope (rise over run) for a house the lidar saw as flat.
+TOWN_CENTRE = (41.2150, -79.3855)  # The courthouse on Main Street.
+TOWN_RADIUS = 380.0  # Brick shop fronts within this distance of it.
+SIGN_WALL_HEIGHT = 3.6  # Business sign centre above the ground.
+SIGN_POLE_FROM = 22.0  # A sign wall further than this from the road gets a pole sign too.
+STREET_SAMPLE = 2.0  # Spacing of the points that stand for a street off the loop.
 TREE_COUNT = 3500
 TREE_NEAR = 22.0
 TREE_FAR = 260.0
+TREE_BUILDING_CLEAR = 5.0  # Tree trunks at least this far from any wall.
 SEED = 322
 # Side streets: public roads that meet the loop, cut short and closed with a barrier.
 STREET_CLASSES = "motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street"
@@ -65,6 +83,7 @@ STUB_FLARE = 6.0  # Radius of the rounded corner where a street meets the loop's
 SIGN_OFFSET = 1.5  # Name sign post this far outside the street's edge.
 SIGN_CHAR_WIDTH = 0.3  # Name sign plate length per letter; matches RoadTrack.SIGN_CHAR_WIDTH.
 SIGN_PLATE_PAD = 0.6  # Plate length past the words; matches RoadTrack.SIGN_PLATE_PAD.
+SIGN_PLATE_HEIGHT = 0.7  # Name sign plate height; matches RoadTrack.SIGN_PLATE_HEIGHT.
 CORNER_MAX = 12.0  # A rounded corner reaches at most this far along each edge.
 CORNER_STEPS = 12
 CORNER_DROP = 0.04  # Corner patch sits this far under the roads it joins.
@@ -123,9 +142,14 @@ def main() -> None:
     base = float(math.floor(terrain.min() / 10.0) * 10.0 - 10.0)
     all_roads = [points] + [s["centre"] for s in stubs]
     road_tree = Nearest(np.vstack(all_roads))
-    blocks = place_buildings(buildings, proj, road_tree, layout, terrain)
+    stub_tree = Nearest(np.vstack([s["centre"] for s in stubs])) if stubs else None
+    footprints = load_footprints(cache, buildings, proj)
+    blocks = place_buildings(footprints, proj, Nearest(points), stub_tree, layout, terrain)
+    signs = place_businesses(cache, blocks, proj, Nearest(points), streets, heights, terrain, layout)
     trees = place_trees(Nearest(points), road_tree, layout, terrain, blocks)
-    print("terrain %d x %d, %d buildings, %d trees" % (layout["width"], layout["depth"], len(blocks), len(trees)))
+    print("terrain %d x %d, %d buildings (%d sloped roofs), %d business signs, %d trees" % (
+            layout["width"], layout["depth"], len(blocks), sum(1 for b in blocks if b["roof"] != "flat"),
+            len(signs), len(trees)))
 
     (terrain - base).astype("<f4").tofile(os.path.join(out_dir, "terrain.bin"))
     layout["file"] = "terrain.bin"
@@ -140,10 +164,11 @@ def main() -> None:
         "side_streets": [stub_data(st, base) for st in stubs],
         "mouth_cuts": mouth_cuts(stubs, points, bridge),
         "terrain": layout,
-        "buildings": [[round(float(v), 2) for v in (b[0], b[1], b[2], b[3], b[4], b[5] - base, b[6])]
-                for b in blocks],
+        "buildings": [building_data(b, base) for b in blocks],
+        "businesses": [business_data(b, base) for b in signs],
         "trees": [[round(float(v), 2) for v in (t[0], t[1] - base, t[2], t[3])] for t in trees],
-        "credits": "Map data (c) OpenStreetMap contributors, ODbL. Heights: USGS 3DEP.",
+        "credits": "Map data (c) OpenStreetMap contributors, ODbL. Buildings: Overture Maps Foundation, "
+                "ODbL and CDLA Permissive 2.0. Heights and roofs: USGS 3DEP.",
     }
     with open(os.path.join(out_dir, "clarion.json"), "w") as f:
         json.dump(data, f, separators=(",", ":"))
@@ -872,29 +897,320 @@ def inside_terrain(layout: dict, x: float, z: float, margin: float) -> bool:
     return layout["x0"] + margin < x < x1 - margin and layout["z0"] + margin < z < z1 - margin
 
 
-def place_buildings(buildings: dict, proj: Projection, road: Nearest, layout: dict, terrain: np.ndarray):
-    """Each footprint as its smallest enclosing box: centre x, z, yaw, length, width, base, height."""
-    blocks = []
-    for w in buildings["elements"]:
+def load_footprints(cache: str, osm: dict, proj: Projection):
+    """Building outlines in local metres, with heights above the ground beside them and roofs.
+
+    Uses the Overture outlines and lidar roofs from fetch_buildings.py when they are in the
+    cache, and the OSM outlines with guessed heights when they are not.
+    """
+    path = os.path.join(cache, "overture_buildings.json")
+    found = []
+    if os.path.exists(path):
+        with open(path) as f:
+            outlines = json.load(f)
+        roofs = {}
+        roofs_path = os.path.join(cache, "building_roofs.json")
+        if os.path.exists(roofs_path):
+            with open(roofs_path) as f:
+                roofs = json.load(f)
+        for b in outlines:
+            roof = roofs.get(b["id"])
+            if roof is None:
+                if b.get("height"):
+                    height = float(b["height"])
+                elif b.get("floors"):
+                    height = 3.2 * float(b["floors"])
+                else:
+                    height = building_height({"building": b.get("class") or ""})
+                roof = {"roof": "flat", "eave": height, "ridge": height}
+            found.append({"ring": np.array([proj.to_local(lat, lon) for lon, lat in b["ring"]]),
+                    "kind": b.get("class") or "", "subtype": b.get("subtype") or "", "roof": roof["roof"],
+                    "ridge_along": roof.get("ridge_along", "long"), "eave": roof["eave"],
+                    "ridge": roof["ridge"], "measured": b["id"] in roofs})
+        print("%d building outlines from Overture, %d with lidar roofs" % (len(found), len(roofs)))
+        return found
+    for w in osm["elements"]:
         if w.get("type") != "way" or len(w.get("geometry", ())) < 4:
             continue
-        pts = np.array([proj.to_local(g["lat"], g["lon"]) for g in w["geometry"]])
-        cx, cz, yaw, length, width = min_area_box(pts)
-        if length < 3.0 or width < 3.0 or length > 150.0:
+        height = building_height(w["tags"])
+        found.append({"ring": np.array([proj.to_local(g["lat"], g["lon"]) for g in w["geometry"]]),
+                "kind": w["tags"].get("building", ""), "subtype": "", "roof": "flat", "ridge_along": "long",
+                "eave": height, "ridge": height, "measured": False})
+    print("%d building outlines from OSM (no fetch_buildings.py files in the cache)" % len(found))
+    return found
+
+
+def place_buildings(footprints, proj: Projection, loop: Nearest, stubs, layout: dict, terrain: np.ndarray):
+    """Buildings near the road and clear of it, each sitting on the ground, with a style and colours.
+
+    A sloped roof sits on the outline's smallest enclosing box, so its walls become that box;
+    an outline that fills too little of its box keeps its shape and gets a flat roof instead.
+    """
+    rng = np.random.default_rng(SEED)
+    town = np.array(proj.to_local(*TOWN_CENTRE))
+    blocks = []
+    for f in footprints:
+        ring = f["ring"]
+        if len(ring) > 3 and np.allclose(ring[0], ring[-1]):
+            ring = ring[:-1]
+        area = ring_area(ring)
+        if len(ring) < 3 or abs(area) < 12.0:
             continue
-        if not inside_terrain(layout, cx, cz, 20.0):
+        if area < 0:
+            ring = ring[::-1]  # Same winding for every outline.
+            area = -area
+        cx, cz, yaw, length, width = min_area_box(ring)
+        if length > 200.0 or not inside_terrain(layout, cx, cz, 20.0):
             continue
-        _, d = road.query(cx, cz, BUILDING_RANGE)
-        if d - math.hypot(length, width) / 2.0 < ROAD_CLEAR:
-            continue  # Too close to the road, or (inf) too far from it.
-        tags = w["tags"]
-        height = building_height(tags)
-        # Sit on the lowest corner so no corner floats on a slope.
-        c, s = math.cos(yaw), math.sin(yaw)
-        base = min(terrain_height(terrain, layout, cx + c * u * length / 2 - s * v * width / 2,
-                cz + s * u * length / 2 + c * v * width / 2) for u in (-1, 1) for v in (-1, 1))
-        blocks.append((cx, cz, yaw, length, width, base - 0.5, height + 0.5))
+        _, road_gap = loop.query(cx, cz, BUILDING_RANGE)
+        if stubs is not None:
+            road_gap = min(road_gap, stubs.query(cx, cz, BUILDING_RANGE)[1])
+        if math.isinf(road_gap) or not clear_of_road(ring, loop, stubs):
+            continue
+        style = building_style(f, area, math.hypot(cx - town[0], cz - town[1]), road_gap)
+        eave, ridge, roof = float(f["eave"]), float(f["ridge"]), f["roof"]
+        fill = area / max(length * width, 1e-6)
+        if roof == "flat" and style == "house" and fill >= BOX_FILL and area >= 40.0:
+            # Most houses here have pitched roofs that the lidar was too sparse or too leafy to see.
+            rise = min(3.0, HOUSE_PITCH * width / 2.0)
+            eave = max(2.4, eave - rise / 2.0)
+            ridge, roof = eave + rise, "gable"
+        if roof != "flat" and fill < BOX_FILL:
+            eave = ridge = (eave + ridge) / 2.0
+            roof = "flat"
+        eave = min(max(eave, 2.4), 60.0)
+        ridge = max(ridge, eave)
+        if roof != "flat":
+            ring = box_corners(cx, cz, yaw, length, width)
+        ground = [terrain_height(terrain, layout, x, z) for x, z in ring]
+        low = min(ground)
+        lift = float(np.mean(ground)) - low + BUILDING_SINK  # From the wall's foot up to the ground.
+        wall, top = building_colours(style, roof, rng)
+        blocks.append({"ring": ring, "base": low - BUILDING_SINK, "eave": eave + lift, "ridge": ridge + lift,
+                "roof": roof, "ridge_along": f["ridge_along"], "box": (cx, cz, yaw, length, width),
+                "style": style, "wall": wall, "top": top, "area": area})
     return blocks
+
+
+def ring_area(ring: np.ndarray) -> float:
+    """Signed area of an outline in the x, z plane."""
+    x, z = ring[:, 0], ring[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(z, -1)) - np.dot(z, np.roll(x, -1)))
+
+
+def clear_of_road(ring: np.ndarray, loop: Nearest, stubs) -> bool:
+    """True if no point along the outline is within ROAD_CLEAR of the loop's centreline, or within
+    STUB_BUILDING_CLEAR of a side street's (ROAD_CLEAR near the loop, where the corners flare)."""
+    for a, b in zip(ring, np.roll(ring, -1, axis=0)):
+        steps = max(1, int(math.ceil(np.linalg.norm(b - a) / 3.0)))
+        for t in np.linspace(0.0, 1.0, steps, endpoint=False):
+            x, z = a + (b - a) * t
+            if loop.query(x, z, ROAD_CLEAR)[0] != -1:
+                return False
+            if stubs is None:
+                continue
+            reach = ROAD_CLEAR if loop.query(x, z, MOUTH_CLEAR)[0] != -1 else STUB_BUILDING_CLEAR
+            if stubs.query(x, z, reach)[0] != -1:
+                return False
+    return True
+
+
+def box_corners(cx, cz, yaw, length, width) -> np.ndarray:
+    u = np.array([math.cos(yaw), math.sin(yaw)]) * length / 2.0
+    v = np.array([-math.sin(yaw), math.cos(yaw)]) * width / 2.0
+    c = np.array([cx, cz])
+    return np.array([c - u - v, c + u - v, c + u + v, c - u + v])
+
+
+def building_style(f: dict, area: float, from_town: float, road_gap: float) -> str:
+    """shop (brick, shop windows), civic (brick or stone), store (big and plain) or house."""
+    if f["kind"] in ("university", "church", "school", "library", "civic", "hospital", "courthouse") \
+            or f["subtype"] in ("education", "religious", "civic", "medical"):
+        return "civic"
+    if from_town < TOWN_RADIUS and road_gap < 45.0:
+        return "shop"
+    if area > 900.0 or (area > 300.0 and f["subtype"] in ("commercial", "industrial")):
+        return "store"
+    if area > 300.0 and f["subtype"] != "residential":
+        return "store"
+    return "house"
+
+
+HOUSE_WALLS = [(0.90, 0.89, 0.85), (0.74, 0.75, 0.76), (0.88, 0.82, 0.66), (0.67, 0.74, 0.80),
+        (0.89, 0.83, 0.57), (0.67, 0.72, 0.60), (0.80, 0.70, 0.56), (0.93, 0.93, 0.92)]
+BRICK_WALLS = [(0.55, 0.25, 0.18), (0.62, 0.32, 0.22), (0.48, 0.22, 0.17), (0.70, 0.56, 0.42)]
+CIVIC_WALLS = [(0.58, 0.30, 0.22), (0.66, 0.61, 0.52), (0.52, 0.27, 0.20)]
+STORE_WALLS = [(0.68, 0.68, 0.66), (0.78, 0.74, 0.66), (0.58, 0.60, 0.62), (0.82, 0.80, 0.76)]
+SLOPED_ROOFS = [(0.24, 0.24, 0.26), (0.34, 0.22, 0.18), (0.30, 0.32, 0.36), (0.40, 0.38, 0.35)]
+FLAT_ROOFS = [(0.40, 0.40, 0.40), (0.47, 0.46, 0.44), (0.33, 0.33, 0.34)]
+
+
+def building_colours(style: str, roof: str, rng):
+    walls = {"house": HOUSE_WALLS, "shop": BRICK_WALLS, "civic": CIVIC_WALLS, "store": STORE_WALLS}[style]
+    tops = FLAT_ROOFS if roof == "flat" else SLOPED_ROOFS
+    return walls[rng.integers(len(walls))], tops[rng.integers(len(tops))]
+
+
+def building_data(b: dict, base: float) -> dict:
+    data = {"ring": [round(float(v), 2) for p in b["ring"] for v in p], "y": round(b["base"] - base, 2),
+            "eave": round(b["eave"], 2), "style": b["style"],
+            "wall": list(b["wall"]), "top": list(b["top"])}
+    if b["roof"] != "flat":
+        data["roof"] = b["roof"]
+        data["ridge"] = round(b["ridge"], 2)
+        data["box"] = [round(float(v), 3) for v in b["box"]]
+        data["ridge_along"] = b["ridge_along"]
+    return data
+
+
+# Business signs -------------------------------------------------------------------------------
+
+
+def place_businesses(cache: str, blocks, proj: Projection, loop: Nearest, streets: dict, heights: np.ndarray,
+        terrain: np.ndarray, layout: dict):
+    """A sign on the wall of each listed business that faces the loop, and a pole sign by the
+    road when that wall is set well back.
+
+    A business whose address is on a street that leaves the loop faces that street instead, with
+    its pole sign at the street's edge in front of it, turned to be read from along the street.
+    """
+    path = os.path.join(cache, "businesses.json")
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        wanted = json.load(f)
+    signs = []
+    for biz in wanted:
+        spot = np.array(proj.to_local(biz["lat"], biz["lon"]))
+        block = building_at(blocks, spot)
+        if block is None:
+            print("no building near %s, so no sign" % biz["sign"])
+            continue
+        centre = block["ring"].mean(axis=0)
+        street = address_street(streets, biz.get("address", ""), proj, loop, centre)
+        middle, out, edge = facing_wall(block["ring"], street or loop)
+        ground = terrain_height(terrain, layout, *middle)
+        top = block["base"] + block["eave"]
+        i, gap = loop.query(middle[0], middle[1], 1000.0)
+        # Letters grow with the distance from the road, as long as the wall is wide enough.
+        letters = len(biz["sign"]) * SIGN_CHAR_WIDTH
+        scale = min(max(gap / 15.0, 1.0), 3.0, max((edge - 0.6 - SIGN_PLATE_PAD) / letters, 0.5))
+        half = SIGN_PLATE_HEIGHT * scale / 2.0
+        height = max(min(ground + SIGN_WALL_HEIGHT, top - half - 0.2), ground + half + 1.0)
+        sign = {"text": biz["sign"], "scale": scale, "width": letters * scale + SIGN_PLATE_PAD,
+                "wall": (middle + out * 0.12, height, out)}
+        if street is not None:
+            k, street_gap = street.query(middle[0], middle[1], 1000.0)
+            road = street.points[k]
+            toward = (middle - road) / max(street_gap, 1e-9)
+            pole = road + toward * min(STUB_HALF_WIDTH + 2.0, street_gap / 2.0)
+            ahead = street.ahead[k]
+            sign["pole"] = (pole, terrain_height(terrain, layout, *pole), ahead)
+        elif gap > SIGN_POLE_FROM:
+            road = loop.points[i]
+            ahead = loop.points[(i + 1) % len(loop.points)] - loop.points[i - 1]
+            ahead /= max(np.linalg.norm(ahead), 1e-9)
+            toward = (middle - road) / gap
+            pole = road + toward * (ROAD_HALF_WIDTH + 4.5)
+            sign["pole"] = (pole, max(terrain_height(terrain, layout, *pole), heights[i] - 1.0), ahead)
+        signs.append(sign)
+        print("sign %-30s %s" % (biz["sign"], "wall and pole" if "pole" in sign else "wall"))
+    return signs
+
+
+def street_key(name: str) -> str:
+    """A street name in a form that matches across spellings: "S 5th Ave" and "South 5th Avenue"."""
+    words = {"st": "street", "ave": "avenue", "av": "avenue", "rd": "road", "hwy": "highway",
+             "dr": "drive", "ln": "lane", "ct": "court", "s": "south", "n": "north", "e": "east", "w": "west"}
+    tokens = re.sub(r"[^a-z0-9 ]", " ", name.lower()).split()
+    return " ".join(words.get(t, t) for t in tokens)
+
+
+def address_street(streets: dict, address: str, proj: Projection, loop: Nearest, centre: np.ndarray):
+    """Points along the street named in an address, where it runs near the business but off the
+    loop, with the direction along it at each; None when the address is on the loop itself."""
+    number = re.match(r"\s*\d+\s+(.*)", address)
+    if not number:
+        return None
+    key = street_key(number.group(1))
+    points, ahead = [], []
+    for way in streets["elements"]:
+        if street_key(way.get("tags", {}).get("name", "")) != key:
+            continue
+        line = np.array([proj.to_local(n["lat"], n["lon"]) for n in way["geometry"]])
+        for a, b in zip(line[:-1], line[1:]):
+            run = float(np.linalg.norm(b - a))
+            if run < 1e-6:
+                continue
+            for t in np.linspace(0.0, 1.0, max(1, int(run / STREET_SAMPLE)), endpoint=False):
+                p = a + (b - a) * t
+                if np.linalg.norm(p - centre) > 150.0:
+                    continue
+                if loop.query(p[0], p[1], STUB_CLEAR)[0] != -1:
+                    continue
+                points.append(p)
+                ahead.append((b - a) / run)
+    if not points:
+        return None
+    street = Nearest(np.array(points))
+    street.ahead = ahead
+    # On the loop if the street's nearest point to the business is on it.
+    if loop.query(centre[0], centre[1], 1000.0)[1] < street.query(centre[0], centre[1], 1000.0)[1]:
+        return None
+    return street
+
+
+def building_at(blocks, spot: np.ndarray, reach: float = 60.0):
+    """The building whose outline holds a place, or else the nearest one within reach."""
+    best, best_gap = None, reach
+    for b in blocks:
+        ring = b["ring"]
+        if np.abs(ring - spot).min(axis=0).max() > reach + 200.0:
+            continue
+        if inside_polygon(ring, spot):
+            return b
+        gap = min(segment_gap(spot, a, c) for a, c in zip(ring, np.roll(ring, -1, axis=0)))
+        if gap < best_gap:
+            best, best_gap = b, gap
+    return best
+
+
+def segment_gap(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
+    ab = b - a
+    t = min(max(float(np.dot(p - a, ab) / max(np.dot(ab, ab), 1e-9)), 0.0), 1.0)
+    return float(np.linalg.norm(p - (a + ab * t)))
+
+
+def facing_wall(ring: np.ndarray, loop: Nearest):
+    """Middle, outward direction and length of the wall that looks most squarely at the loop."""
+    best = None
+    for a, b in zip(ring, np.roll(ring, -1, axis=0)):
+        edge = b - a
+        length = float(np.linalg.norm(edge))
+        if length < 2.0:
+            continue
+        middle = (a + b) / 2.0
+        out = np.array([edge[1], -edge[0]]) / length
+        if inside_polygon(ring, middle + out * 0.3):
+            out = -out
+        i, gap = loop.query(middle[0], middle[1], 1000.0)
+        if i < 0:
+            continue
+        look = float(np.dot(out, (loop.points[i] - middle) / max(gap, 1e-9)))
+        score = look - 0.004 * gap - (0.5 if length < 6.0 else 0.0)
+        if best is None or score > best[0]:
+            best = (score, middle, out, length)
+    return best[1:]
+
+
+def business_data(sign: dict, base: float) -> dict:
+    spot, y, out = sign["wall"]
+    data = {"text": sign["text"], "width": round(float(sign["width"]), 2), "scale": round(float(sign["scale"]), 2),
+            "wall": [round(float(v), 3) for v in (spot[0], y - base, spot[1], out[0], out[1])]}
+    if "pole" in sign:
+        spot, y, ahead = sign["pole"]
+        data["pole"] = [round(float(v), 3) for v in (spot[0], y - base, spot[1], ahead[0], ahead[1])]
+    return data
 
 
 def building_height(tags: dict) -> float:
@@ -950,7 +1266,7 @@ def place_trees(loop: Nearest, road: Nearest, layout: dict, terrain: np.ndarray,
     """Random trees in a band either side of the loop, clear of every road and the buildings."""
     rng = np.random.default_rng(SEED)
     pts = loop.points
-    building_tree = Nearest(np.array([(b[0], b[1]) for b in blocks]) if blocks else np.zeros((0, 2)))
+    building_tree = Nearest(building_samples(blocks))
     trees = []
     tries = 0
     while len(trees) < TREE_COUNT and tries < TREE_COUNT * 20:
@@ -965,11 +1281,27 @@ def place_trees(loop: Nearest, road: Nearest, layout: dict, terrain: np.ndarray,
             continue
         if road.query(x, z, TREE_NEAR)[0] != -1:
             continue
-        if blocks and building_tree.query(x, z, 25.0)[0] != -1:
+        if building_tree.query(x, z, TREE_BUILDING_CLEAR)[0] != -1:
             continue
         scale = 0.7 + 0.6 * rng.random()
         trees.append((x, terrain_height(terrain, layout, x, z), z, scale))
     return trees
+
+
+def building_samples(blocks) -> np.ndarray:
+    """Points along every building's walls and across its inside, for keeping trees out."""
+    samples = [np.zeros((0, 2))]
+    for b in blocks:
+        ring = b["ring"]
+        for a, c in zip(ring, np.roll(ring, -1, axis=0)):
+            steps = max(1, int(math.ceil(np.linalg.norm(c - a) / 3.0)))
+            samples.append(a + (c - a) * np.linspace(0.0, 1.0, steps, endpoint=False)[:, None])
+        lo, hi = ring.min(axis=0), ring.max(axis=0)
+        for x in np.arange(lo[0] + 2.0, hi[0], 4.0):
+            for z in np.arange(lo[1] + 2.0, hi[1], 4.0):
+                if inside_polygon(ring, (x, z)):
+                    samples.append(np.array([[x, z]]))
+    return np.vstack(samples)
 
 
 if __name__ == "__main__":

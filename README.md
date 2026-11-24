@@ -61,7 +61,7 @@ Checks the Ridge track: gates, centreline, hills, surfaces, a timed lap and the 
 godot --headless --path . -s tests/clarion_check.gd
 ```
 
-Checks the Clarion loop: length, gates, hills, road surface, ground near the road, closed side streets, resets near the car, a timed lap and the car at the start. Takes about 10 s. Touches no files.
+Checks the Clarion loop: length, gates, hills, road surface, ground near the road, closed side streets, buildings and business signs, resets near the car, a timed lap and the car at the start. Takes about 10 s. Touches no files.
 
 ```sh
 godot --headless --path . -s tests/reset_check.gd
@@ -164,18 +164,28 @@ Real roads round Clarion, PA, with real hill heights:
 - A big green street-name sign stands just past each corner, for example "BP Drive" or "I-80 ramp".
 - The start line is just past the Main Street junction in town.
 - PA 68 carries on past the I-80 on-ramp, and I-80 carries on past the PA 66 off-ramp, each to its own roadblock.
-- Trees and box buildings come from the map. They are solid.
+- Buildings have their real outlines, wall heights and roof shapes (flat, gable or hip), measured from map data and lidar. Colours and windows are simple: brick shops in town, light houses, grey big stores. Buildings and trees are solid.
+- Seven businesses have signs: Clarion County Court House, Daddy's Main Street Hotdog, Frampton Oil, The Carpet Barn, Computer Support & Associates, Clarion Animal Hospital and ALDI. Each has a sign on the wall that faces the road. A business set well back also has a tall sign on two posts by the road. To change the list, edit `tools/clarion/businesses.json` and make the data again.
 - Splits come at 3 checkpoints, about every 4 km.
 - Tap Y to go back on the road where you are. Hold Y for 1 s to go back to the start. Either way cancels the lap.
 - It takes 2 to 3 s to build when you pick it.
 
-The data is in `track/clarion/clarion.json` (road, bridges, side streets, buildings, trees) and `track/clarion/terrain.bin` (ground heights). To make them again from fresh map data:
+The data is in `track/clarion/clarion.json` (road, bridges, side streets, buildings, business signs, trees) and `track/clarion/terrain.bin` (ground heights). To make them again from fresh map data:
 
-```sh
-python3 tools/clarion/build_track.py CACHE_DIR
-```
+1. Fetch building outlines, roof heights and business places. This downloads about 500 MB of lidar the first time:
 
-Downloads go into `CACHE_DIR` and are reused on the next run. Needs Python with numpy and Pillow.
+   ```sh
+   uv run --no-project --with duckdb --with laspy --with lazrs --with numpy --with pillow \
+       python tools/clarion/fetch_buildings.py CACHE_DIR
+   ```
+
+2. Build the track data:
+
+   ```sh
+   python3 tools/clarion/build_track.py CACHE_DIR
+   ```
+
+Downloads go into `CACHE_DIR` and are reused on the next run. `build_track.py` needs Python with numpy and Pillow. Without step 1, buildings come from OpenStreetMap outlines with guessed heights and flat roofs, and there are no business signs.
 
 If you export the game, add `*.bin` to the export's non-resource files, or the Clarion ground is missing.
 
@@ -373,6 +383,6 @@ The `preview_wheel` objects in the `.blend` only show the other three wheels the
 
 ## Credits
 
-- Clarion loop map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, licensed [ODbL](https://opendatacommons.org/licenses/odbl/). Heights from the USGS [3D Elevation Program](https://www.usgs.gov/3d-elevation-program), public domain.
+- Clarion loop map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, licensed [ODbL](https://opendatacommons.org/licenses/odbl/). Heights and building lidar from the USGS [3D Elevation Program](https://www.usgs.gov/3d-elevation-program), public domain. Building outlines and business places from [Overture Maps](https://overturemaps.org/), licensed [ODbL](https://opendatacommons.org/licenses/odbl/) and [CDLA Permissive 2.0](https://cdla.dev/permissive-2-0/), including building footprints by Microsoft.
 
 - Tire skid: "Car tire squeal skid loop" by Tom Haigh (audible-edge), from [OpenGameArt](https://opengameart.org/content/car-tire-squeal-skid-loop), licensed [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/). Changed: pitched 25% lower, high end softened, and converted to 22 kHz mono.
