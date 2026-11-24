@@ -179,6 +179,9 @@ func plan_speeds(corner: float, brake: float, top := TOP_SPEED) -> void:
 		# Less braking grip is left while the tires are also turning.
 		var turning := minf(1.0, next * next * bend[i] / corner_accel)
 		var a := brake_accel * sqrt(maxf(0.15, 1.0 - turning * turning))
+		# Gravity helps braking uphill and works against it downhill.
+		var grade := (points[(i + 1) % n].y - points[i].y) / step
+		a = maxf(0.3 * a, a + GRAVITY * grade)
 		speeds[i] = minf(speeds[i], sqrt(next * next + 2.0 * a * step))
 
 

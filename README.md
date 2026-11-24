@@ -14,8 +14,10 @@ godot --path .      # run the game
 ## Layout
 
 - `car/`: car physics and setup. `car_look.gd` puts the 3D model from `car/roadster/` on the car. `sound/` makes the engine, tire and wind sound. Only the tire skid is a recording.
-- `track/`: places to drive. `track.gd` is what every track offers. `circuit.gd` builds a loop from straights and arcs in code. `blender_track.gd` loads a track made in Blender.
+- `menu/`: the first screen, where you pick a track.
+- `track/`: places to drive. `track.gd` is what every track offers. `circuit.gd` builds a loop from straights and arcs in code. `blender_track.gd` loads a track made in Blender. `road_track.gd` builds a road, ground, trees and buildings from map data, for the Clarion loop.
 - `tools/blender/`: Python scripts that build and export Blender tracks and the car model.
+- `tools/clarion/`: the Python script that makes the Clarion loop data from real maps.
 - `modes/`: game modes. `time_trial/` has the lap timer, best-lap file, lap display, course map and ghost car. `save_paths.gd` keeps tests away from your saved files.
 - `drivers/`: what controls a car: the player and the AI driver. `racing_line.gd` works out the AI's line and speeds. `learning_level.gd` sets how much the game helps you, and `track_guide.gd` draws the line and brake boards on the road.
 - `camera/`: chase camera.
@@ -54,6 +56,18 @@ godot --headless --path . -s tests/track_check.gd
 ```
 
 Checks the Ridge track: gates, centreline, hills, surfaces, a timed lap and the car at the start. Touches no files.
+
+```sh
+godot --headless --path . -s tests/clarion_check.gd
+```
+
+Checks the Clarion loop: length, gates, hills, road surface, ground near the road, resets near the car, a timed lap and the car at the start. Takes about 10 s. Touches no files.
+
+```sh
+godot --headless --path . -s tests/menu_check.gd
+```
+
+Checks the track menu: a button per track, focus on the first, and picking one starts the game on it. Touches no files.
 
 ```sh
 godot --headless --path . -s tests/look_check.gd
@@ -105,9 +119,12 @@ Checks the gauges: where they sit on a 1920 x 1080 screen, the dial scales, the 
 
 ## Time trial
 
-The game starts on Ridge (`track/ridge/ridge.tscn`), a 2.6 km track with hills, a blind crest and a downhill hairpin.
+The game starts on a menu. Pick a track with the mouse, the arrow keys and Enter, or the stick and A:
 
-To drive loop_1 instead, open `main.tscn` in a text editor and change `res://track/ridge/ridge.tscn` to `res://track/loop_1.tscn`. A track picker comes later.
+- **Practice track** (Ridge, `track/ridge/ridge.tscn`): 2.6 km with hills, a blind crest and a downhill hairpin.
+- **Clarion loop** (`track/clarion/clarion.tscn`): 17 km of real roads round Clarion, PA. See [Clarion loop](#clarion-loop).
+
+To go back to the menu, quit and start the game again.
 
 On Ridge:
 
@@ -122,6 +139,34 @@ On Ridge:
 - Y puts you back at the start in 1st gear and cancels the lap.
 - After each checkpoint and lap, the gap to your best shows in green (faster) or red (slower).
 - Best laps are kept in `user://lap_records.cfg`. On Linux that's `~/.local/share/godot/app_userdata/Racer/`. Delete the file to clear them.
+
+## Clarion loop
+
+Real roads round Clarion, PA, with real hill heights:
+
+1. Start on Route 322 at 5th Avenue in town.
+2. South on 5th Avenue (Route 68).
+3. Onto I-80 west, over the high bridges.
+4. Off at the first exit onto Route 66 north.
+5. Route 66 north to Route 322.
+6. Route 322 east back into Clarion.
+
+- The road is 12 m wide, with a dashed yellow centre line and grass shoulders.
+- Rails line the bridges.
+- Trees and box buildings come from the map. They are solid.
+- Splits come at 3 checkpoints, about every 4 km.
+- Y puts you back on the road where you are, not at the start, and cancels the lap.
+- It takes 2 to 3 s to build when you pick it.
+
+The data is in `track/clarion/clarion.json` (road, bridges, buildings, trees) and `track/clarion/terrain.bin` (ground heights). To make them again from fresh map data:
+
+```sh
+python3 tools/clarion/build_track.py CACHE_DIR
+```
+
+Downloads go into `CACHE_DIR` and are reused on the next run. Needs Python with numpy and Pillow.
+
+If you export the game, add `*.bin` to the export's non-resource files, or the Clarion ground is missing.
 
 ## Gauges
 
@@ -316,5 +361,7 @@ The model only changes looks. The car still collides as a box. Keep these object
 The `preview_wheel` objects in the `.blend` only show the other three wheels there. They are not exported.
 
 ## Credits
+
+- Clarion loop map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, licensed [ODbL](https://opendatacommons.org/licenses/odbl/). Heights from the USGS [3D Elevation Program](https://www.usgs.gov/3d-elevation-program), public domain.
 
 - Tire skid: "Car tire squeal skid loop" by Tom Haigh (audible-edge), from [OpenGameArt](https://opengameart.org/content/car-tire-squeal-skid-loop), licensed [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/). Changed: pitched 25% lower, high end softened, and converted to 22 kHz mono.

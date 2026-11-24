@@ -33,6 +33,9 @@ const STEER_CUT := 0.8
 const SLIDE_START := 3.0
 const SLIDE_LET_GO := 7.0
 const COUNTER_GAIN := 1.2
+## How hard the steering fights a turn rate that differs from what the line needs. Stops the
+## car weaving on fast bends.
+const YAW_DAMP := 1.0
 ## Put back on the line when slower than this for STUCK_TIME, or further than OFF_LINE away.
 const STUCK_SPEED := 1.5
 const STUCK_TIME := 4.0
@@ -115,6 +118,8 @@ func _physics_process(delta: float) -> void:
 		if player.forward_speed() > 1.0 or player.global_position.distance_to(_spawn().origin) > 3.0:
 			_waiting = false
 		return
+	if car.is_placing():
+		return  # Its old position would look far off the line.
 	if _needs_rescue(v, delta):
 		_rescue()
 		return
@@ -136,7 +141,11 @@ func _steer(v: float) -> void:
 	var target := car.to_local(line.point_ahead(progress, look))
 	var distance := Vector2(target.x, target.z).length()
 	var alpha := atan2(target.x, -target.z)  # Positive when the point is to the right.
-	var angle := atan(2.0 * car.setup.wheelbase * sin(alpha) / maxf(distance, 1.0))
+	var bend := 2.0 * sin(alpha) / maxf(distance, 1.0)  # Curvature of the arc to the point.
+	var angle := atan(car.setup.wheelbase * bend)
+	# Damp the weave: steer less while the car turns faster than the arc needs, more while slower.
+	var yaw := -car.angular_velocity.dot(car.global_basis.y)  # Positive when turning right.
+	angle += YAW_DAMP * car.setup.wheelbase * (bend * v - yaw) / maxf(v, 5.0)
 	# Steer into a slide: point the front wheels more towards where the car is going.
 	var slide := _slide_angle()
 	if absf(slide) > deg_to_rad(SLIDE_START):

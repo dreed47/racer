@@ -82,13 +82,16 @@ func _check_line() -> void:
 	print("  line speeds %.0f to %.0f km/h" % [slowest * 3.6, fastest * 3.6])
 	_check(slowest > 8.0 and slowest < 25.0, "slowest point is the hairpin pace (%.0f km/h)" % (slowest * 3.6))
 	_check(fastest > 35.0, "fast on the straights (%.0f km/h)" % (fastest * 3.6))
-	# Never asks to slow faster than the brakes can.
+	# Never asks to slow faster than the brakes can. Uphill, gravity helps; downhill, less is left.
 	var worst := 0.0
 	for i in n:
 		var a := line.speeds[i]
 		var b := line.speeds[(i + 1) % n]
-		worst = maxf(worst, (a * a - b * b) / (2.0 * line.points[i].distance_to(line.points[(i + 1) % n])))
-	_check(worst <= line.brake_accel * 1.01, "braking asked for fits the brakes (%.1f m/s²)" % worst)
+		var step := line.points[i].distance_to(line.points[(i + 1) % n])
+		var grade := (line.points[(i + 1) % n].y - line.points[i].y) / step
+		var can := maxf(0.3 * line.brake_accel, line.brake_accel + RacingLine.GRAVITY * grade)
+		worst = maxf(worst, (a * a - b * b) / (2.0 * step) / can)
+	_check(worst <= 1.01, "braking asked for fits the brakes (%.0f %% of what they can do)" % (worst * 100.0))
 
 
 ## Times laps by the line point the car is at. The car starts behind the line.

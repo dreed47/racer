@@ -42,3 +42,8 @@ func gate(_index: int) -> Transform3D:
 ## Half the width a gate covers, measured from the centreline.
 func gate_half_width() -> float:
 	return 5.0
+
+
+## Where a reset puts a car that is now at "near", in world space. Most tracks use the start.
+func reset_transform(_near: Vector3) -> Transform3D:
+	return ($Spawn as Node3D).global_transform

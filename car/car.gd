@@ -103,6 +103,11 @@ func place_at(where: Transform3D) -> void:
 	_place_pending = true
 
 
+## True from place_at() until the car has moved there on the next physics step.
+func is_placing() -> bool:
+	return _place_pending
+
+
 func _physics_process(delta: float) -> void:
 	var speed := forward_speed()
 

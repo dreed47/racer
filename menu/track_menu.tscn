@@ -1,0 +1,58 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://menu/track_menu.gd" id="1"]
+
+[node name="TrackMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.12, 0.16, 0.2, 1)
+
+[node name="Centre" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Column" type="VBoxContainer" parent="Centre"]
+layout_mode = 2
+theme_override_constants/separation = 28
+
+[node name="Title" type="Label" parent="Centre/Column"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 48
+text = "Choose a track"
+horizontal_alignment = 1
+
+[node name="Buttons" type="VBoxContainer" parent="Centre/Column"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="Hint" type="Label" parent="Centre/Column"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Click one, or use arrows and Enter, or the stick and A."
+horizontal_alignment = 1
+
+[node name="Loading" type="Label" parent="Centre/Column"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_font_sizes/font_size = 36
+text = "Loading…"
+horizontal_alignment = 1

@@ -1,0 +1,40 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://track/road_track.gd" id="1"]
+[ext_resource type="Shader" path="res://track/grid.gdshader" id="2"]
+
+[sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 3
+tonemap_mode = 2
+fog_enabled = true
+fog_light_color = Color(0.68, 0.74, 0.82, 1)
+fog_density = 0.0004
+fog_sky_affect = 0.0
+
+[sub_resource type="ShaderMaterial" id="grass"]
+shader = ExtResource("2")
+shader_parameter/base_color = Color(0.2, 0.34, 0.16, 1)
+shader_parameter/line_color = Color(0.27, 0.42, 0.22, 1)
+shader_parameter/cell_size = 10.0
+shader_parameter/line_width = 0.08
+
+[node name="Clarion" type="Node3D"]
+script = ExtResource("1")
+track_id = "clarion"
+data_path = "res://track/clarion/clarion.json"
+grass_material = SubResource("grass")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, 0, -0.5, -0.354, 0.707, -0.612, 0.354, 0.707, 0.612, 0, 300, 0)
+shadow_enabled = true
+shadow_max_distance = 300.0
