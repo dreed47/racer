@@ -6,6 +6,8 @@ Semi-realistic driving sim built with Godot 4 and GDScript.
 
 ## Run
 
+Needs [Godot](https://godotengine.org/) 4.7 or later. A gamepad helps but isn't required.
+
 ```sh
 godot --path . -e   # open the editor
 godot --path .      # run the game
@@ -386,3 +388,7 @@ The `preview_wheel` objects in the `.blend` only show the other three wheels the
 - Clarion loop map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, licensed [ODbL](https://opendatacommons.org/licenses/odbl/). Heights and building lidar from the USGS [3D Elevation Program](https://www.usgs.gov/3d-elevation-program), public domain. Building outlines and business places from [Overture Maps](https://overturemaps.org/), licensed [ODbL](https://opendatacommons.org/licenses/odbl/) and [CDLA Permissive 2.0](https://cdla.dev/permissive-2-0/), including building footprints by Microsoft.
 
 - Tire skid: "Car tire squeal skid loop" by Tom Haigh (audible-edge), from [OpenGameArt](https://opengameart.org/content/car-tire-squeal-skid-loop), licensed [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/). Changed: pitched 25% lower, high end softened, and converted to 22 kHz mono.
+
+## License
+
+The code is under the [MIT License](LICENSE). The map data, sound and other material in Credits keep their own licenses. The Clarion track data in `track/clarion/` is a database made from OpenStreetMap and Overture data, so it stays under the ODbL.
