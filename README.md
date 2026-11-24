@@ -63,7 +63,7 @@ Checks the Ridge track: gates, centreline, hills, surfaces, a timed lap and the 
 godot --headless --path . -s tests/clarion_check.gd
 ```
 
-Checks the Clarion loop: length, gates, hills, road surface, ground near the road, closed side streets, buildings and business signs, resets near the car, a timed lap and the car at the start. Takes about 10 s. Touches no files.
+Checks the Clarion loop: length, gates, hills, road surface, ground near the road, closed side streets, buildings and business signs, the detour and the house on it, resets near the car, a timed lap and the car at the start. Takes about 10 s. Touches no files.
 
 ```sh
 godot --headless --path . -s tests/reset_check.gd
@@ -167,12 +167,14 @@ Real roads round Clarion, PA, with real hill heights:
 - The start line is just past the Main Street junction in town.
 - PA 68 carries on past the I-80 on-ramp, and I-80 carries on past the PA 66 off-ramp, each to its own roadblock.
 - Buildings have their real outlines, wall heights and roof shapes (flat, gable or hip), measured from map data and lidar. Colours and windows are simple: brick shops in town, light houses, grey big stores. Buildings and trees are solid.
-- Seven businesses have signs: Clarion County Court House, Daddy's Main Street Hotdog, Frampton Oil, The Carpet Barn, Computer Support & Associates, Clarion Animal Hospital and ALDI. Each has a sign on the wall that faces the road. A business set well back also has a tall sign on two posts by the road. To change the list, edit `tools/clarion/businesses.json` and make the data again.
+- 17 businesses have signs, among them Clarion County Court House, Daddy's Main Street Hotdog, Frampton Oil, The Carpet Barn and ALDI. Each has a sign on the wall that faces the road. A business set well back also has a tall sign on two posts by the road. To change the list, edit `tools/clarion/businesses.json` and make the data again.
 - Splits come at 3 checkpoints, about every 4 km.
+- An optional detour, about 1.9 km, leaves the loop where Route 66 meets Route 322. Turn left onto 322 west, then right on Crestmont Dr, right on Ridgewood Rd, right on Devon Ln, left on Oakwood Ln and right on Route 66 south back to the same junction. There, turn left or right onto 322. The detour is free driving: it has no lap timing, ghost or AI cars, and taking it doesn't count as a lap. To skip the drive there, pick **Clarion detour** in the menu: the car starts on Route 66 just before the junction.
+- On the detour, 403 Ridgewood Rd is drawn in detail: a ranch house with a white garage, a porch with columns, a red brick wing with black shutters, a chimney, a lamp post, shrubs and two evergreens. Two simple figures, the owners, wave from the porch.
 - Tap Y to go back on the road where you are. Hold Y for 1 s to go back to the start. Either way cancels the lap.
 - It takes 2 to 3 s to build when you pick it.
 
-The data is in `track/clarion/clarion.json` (road, bridges, side streets, buildings, business signs, trees) and `track/clarion/terrain.bin` (ground heights). To make them again from fresh map data:
+The data is in `track/clarion/clarion.json` (road, bridges, side streets, detour, feature house, buildings, business signs, trees) and `track/clarion/terrain.bin` (ground heights). To make them again from fresh map data:
 
 1. Fetch building outlines, roof heights and business places. This downloads about 500 MB of lidar the first time:
 

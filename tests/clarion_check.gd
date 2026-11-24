@@ -30,6 +30,7 @@ func _physics_process(_delta: float) -> bool:
 		_check_surfaces()
 		_check_side_streets()
 		_check_buildings()
+		_check_detour()
 		_check_reset()
 		_check_timer()
 	if _ticks < int(HZ * 1.5):
@@ -167,10 +168,13 @@ func _check_side_streets() -> void:
 
 	# Name signs: one per named street, on both faces, standing off the loop's road.
 	var signed := 0
+	var named := 0
 	var on_road := 0
 	var i80 := 0
 	for stub: Dictionary in list:
 		var spot: Array = stub.get("sign_post", [])
+		if not String(stub.get("name", "")).is_empty() or not String(stub.get("sign", "")).is_empty():
+			named += 1
 		if String(stub.get("sign", "")).is_empty() or spot.is_empty():
 			continue
 		signed += 1
@@ -184,8 +188,11 @@ func _check_side_streets() -> void:
 	for child in t.get_children():
 		if child is Label3D and child.text != "ROAD CLOSED":
 			labels += 1
-	_check(signed == list.size(), "street-name signs on the side streets (%d of %d)" % [signed, list.size()])
-	_check(labels == signed * 2, "each name sign readable from both sides (%d labels)" % labels)
+	# Some map roads have no name, so they get no sign. The detour has its own signs too.
+	var detour_signs: int = t._data.get("detour", {}).get("signs", []).size()
+	_check(signed == named and signed > list.size() * 0.9,
+			"street-name signs on the named side streets (%d of %d named, %d streets)" % [signed, named, list.size()])
+	_check(labels == (signed + detour_signs) * 2, "each name sign readable from both sides (%d labels)" % labels)
 	_check(on_road == 0, "no name sign on the loop's road (%d)" % on_road)
 	_check(i80 >= 2, "I-80 carries on past both of its ramps (%d stubs)" % i80)
 
@@ -248,6 +255,61 @@ func _check_buildings() -> void:
 			"a sign for each listed business (%d of %d)" % [signs.size(), listed.size()])
 	_check(labels == signs.size() + poles * 2, "business names on walls and both sides of road signs (%d)" % labels)
 	_check(on_road == 0, "no business sign on the road (%d)" % on_road)
+
+
+func _check_detour() -> void:
+	var t := _track
+	var space := t.get_world_3d().direct_space_state
+	var points: PackedVector3Array = t._detour_points
+	_check(points.size() > 100, "detour road exists (%d points)" % points.size())
+	if points.size() < 2:
+		return
+	var first := t.to_global(points[0])
+	var last := t.to_global(points[points.size() - 1])
+	var first_gap := t.point_at(_distance_of(first)).distance_to(first)
+	var last_gap := t.point_at(_distance_of(last)).distance_to(last)
+	_check(first_gap < 30.0 and last_gap < 30.0,
+			"detour leaves and rejoins the loop (%.0f m, %.0f m)" % [first_gap, last_gap])
+	var far := 0.0
+	var misses := 0
+	for i in range(0, points.size(), 5):
+		var p := t.to_global(points[i])
+		far = maxf(far, t.point_at(_distance_of(p)).distance_to(p))
+		var under := _ground_at(space, p)
+		if under != "Detour" and under != "Road":
+			misses += 1
+	_check(far > 300.0, "detour goes well away from the loop (%.0f m)" % far)
+	_check(misses == 0, "detour road surface all the way, no barriers on it (%d misses)" % misses)
+	var mid := t.to_global(points[points.size() / 2])
+	var ahead := t.to_global(points[points.size() / 2 + 1]) - mid
+	var side := ahead.cross(Vector3.UP).normalized()
+	var place := t.reset_transform(mid + side * 6.0 + Vector3.UP * 3.0)
+	var gap := Vector2(place.origin.x - mid.x, place.origin.z - mid.z).length()
+	var facing := (-place.basis.z).dot(ahead.normalized())
+	_check(gap < 5.0 and absf(facing) > 0.9,
+			"reset on the detour puts the car on it, along the road (%.1f m off, facing %.2f)" % [gap, facing])
+	var house: Node3D = null
+	for child in t.get_children():
+		if child is FeatureHouse:
+			house = child
+	_check(house != null and house.has_node("FeatureHouseBody"), "403 Ridgewood Rd is built and solid")
+	if house == null:
+		return
+	var near := INF
+	for p in points:
+		near = minf(near, t.to_global(p).distance_to(house.global_position))
+	_check(near < 40.0, "the house faces the detour (%.0f m from the road)" % near)
+	var owners := house.get_node_or_null("Owners")
+	_check(owners != null and owners.get_child_count() == 2, "two owners stand on the porch")
+	var start: Node3D = t.get_node_or_null("DetourSpawn")
+	_check(start != null, "the detour start marker exists")
+	if start == null:
+		return
+	var at := start.global_position
+	var to_junction := at.distance_to(first)
+	var along := (-start.global_basis.z).dot(t.direction_at(_distance_of(at)))
+	_check(_ground_at(space, at) == "Road" and to_junction < 120.0 and along > 0.9,
+			"detour start sits on Route 66 just before the junction (%.0f m, facing %.2f)" % [to_junction, along])
 
 
 func _check_reset() -> void:

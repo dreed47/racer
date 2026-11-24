@@ -105,6 +105,24 @@ STUB_GRADE = 0.10  # Steepest slope a stub may have.
 STUB_FLAT = 10.0  # Terrain this close to a stub's centreline sits just under it.
 STUB_BLEND = 24.0
 STUB_KEEP = ROAD_HALF_WIDTH + 12.0  # Stub carving never raises ground this close to the loop.
+# Optional detour from the US 322 and PA 66 junction, back to it: west on US 322, right on Crestmont
+# Drive, right on Ridgewood Road, right on Devon Lane, left on Oakwood Lane, right on PA 66 south.
+# Free driving, not part of the lap. Each way is an OSM way id with its first and last node index,
+# and the words for the name sign where the detour turns onto it.
+DETOUR_WAYS = [(11855168, 27, 32, "US 322"), (747797562, 0, 8, "US 322"), (11845915, 0, 3, "Crestmont Dr"),
+        (11858127, 19, 9, "Ridgewood Rd"), (11849659, 5, 0, "Devon Ln"), (11852803, 10, 0, "Oakwood Ln"),
+        (11849242, 8, 0, "PA 66")]
+DETOUR_FLAT = 14.0  # Terrain this close to the detour's centreline sits just under it.
+DETOUR_BLEND = 30.0
+DETOUR_JOIN = 30.0  # Detour heights blend into the loop's over this distance from its edge.
+DETOUR_SKIP = 40.0  # No side streets from the detour this close to the junction: the loop has them.
+TURN_SIGN_AHEAD = 12.0  # A name sign stands this far along each street the detour turns onto.
+# 403 Ridgewood Road, on the detour, gets a detailed model instead of a box (see RoadTrack).
+# Its Overture outline misses the garage at the west end, so the model's box is longer and
+# shifted west.
+FEATURE_HOUSE = "d6cdb5c3-ff76-4946-a1c8-885349c07be0"
+FEATURE_LENGTH = 19.0
+FEATURE_SHIFT_WEST = 2.3
 
 
 def main() -> None:
@@ -146,18 +164,40 @@ def main() -> None:
     print("road heights %.1f to %.1f m, steepest grade %.1f %%" % (heights.min(), heights.max(),
             grade.max() * 100.0))
     terrain, layout = build_terrain(dem, proj, points, heights, bridge)
-    stubs = side_streets(streets, lat_lon, proj, points, heights, bridge, terrain, layout)
-    terrain = carve_stubs(terrain, layout, stubs, Nearest(points))
-    print("%d side streets closed off" % len(stubs))
+    loop = Nearest(points)
+    detour_nodes, turns = detour_path(streets)
+    detour = make_detour(detour_nodes, turns, proj, points, heights, terrain, layout)
+    terrain = carve_stubs(terrain, layout, [detour], loop, DETOUR_FLAT, DETOUR_BLEND)
+    print("detour %.2f km, steepest grade %.1f %%" % (polyline_length(detour["centre"], False) / 1000.0,
+            detour["grade"] * 100.0))
+    detour_edges = {frozenset(e) for e in zip(detour_nodes, detour_nodes[1:])}
+    route_edges = {frozenset(e) for e in zip(lat_lon, lat_lon[1:] + lat_lon[:1])}
+    stubs = side_streets(streets, lat_lon, proj, points, heights, bridge, terrain, layout,
+            stops=detour_nodes, blocked=detour_edges, avoid=Nearest(detour["centre"][detour["away"]]))
+    junction = np.array(proj.to_local(*detour_nodes[0]))
+    skip = {n for n in detour_nodes if np.linalg.norm(np.array(proj.to_local(*n)) - junction) < DETOUR_SKIP}
+    detour_stubs = side_streets(streets, detour_nodes, proj, detour["centre"], detour["heights"],
+            np.zeros(len(detour["centre"]), dtype=bool), terrain, layout, stops=lat_lon, blocked=route_edges,
+            skip=skip, others=stubs, avoid=loop, closed=False)
+    both = Nearest(np.vstack([points, detour["centre"]]))
+    all_stubs = stubs + detour_stubs
+    terrain = carve_stubs(terrain, layout, all_stubs, both)
+    print("%d side streets closed off, %d of them on the detour" % (len(all_stubs), len(detour_stubs)))
     # Keep numbers small, with the lowest ground a little above y = 0 (falling below -20 resets).
     base = float(math.floor(terrain.min() / 10.0) * 10.0 - 10.0)
-    all_roads = [points] + [s["centre"] for s in stubs]
-    road_tree = Nearest(np.vstack(all_roads))
-    stub_tree = Nearest(np.vstack([s["centre"] for s in stubs])) if stubs else None
+    road_tree = Nearest(np.vstack([points, detour["centre"]] + [s["centre"] for s in all_stubs]))
+    stub_tree = Nearest(np.vstack([s["centre"] for s in all_stubs])) if all_stubs else None
+    detour["signs"] = detour_signs(detour, loop, road_tree)
     footprints = load_footprints(cache, buildings, proj)
-    blocks = place_buildings(footprints, proj, Nearest(points), stub_tree, layout, terrain)
-    signs = place_businesses(cache, blocks, proj, Nearest(points), streets, heights, terrain, layout)
-    trees = place_trees(Nearest(points), road_tree, layout, terrain, blocks)
+    blocks = place_buildings(footprints, proj, both, stub_tree, layout, terrain, Nearest(detour["centre"]))
+    plain = [b for b in blocks if not b.get("feature")]
+    feature = next((b["feature"] for b in blocks if b.get("feature")), None)
+    if feature is None:
+        sys.exit("the detour's feature house is missing from the building outlines")
+    signs = place_businesses(cache, plain, proj, loop, streets, heights, terrain, layout)
+    trees = place_trees(loop, road_tree, layout, terrain, blocks)
+    trees += place_trees(Nearest(detour["centre"]), road_tree, layout, terrain, blocks,
+            int(TREE_COUNT * len(detour["centre"]) / len(points)), SEED + 1)
     print("terrain %d x %d, %d buildings (%d sloped roofs), %d business signs, %d trees" % (
             layout["width"], layout["depth"], len(blocks), sum(1 for b in blocks if b["roof"] != "flat"),
             len(signs), len(trees)))
@@ -172,10 +212,15 @@ def main() -> None:
         "road_half_width": ROAD_HALF_WIDTH,
         "points": [round(float(v), 2) for p, h in zip(points, heights) for v in (p[0], h - base, p[1])],
         "bridges": bridge_ranges(bridge),
-        "side_streets": [stub_data(st, base) for st in stubs],
-        "mouth_cuts": mouth_cuts(stubs, points, bridge),
+        "side_streets": [stub_data(st, base) for st in all_stubs],
+        "mouth_cuts": mouth_cuts(stubs + detour_mouths(detour), points, bridge),
+        "detour": detour_data(detour, base, mouth_cuts(detour_stubs, detour["centre"],
+                np.zeros(len(detour["centre"]), dtype=bool))),
+        "feature_house": {k: (round(v - base, 3) if k in ("floor", "foot") else
+                [round(float(x), 3) for x in v] if isinstance(v, (list, tuple)) else round(float(v), 3))
+                for k, v in feature.items()},
         "terrain": layout,
-        "buildings": [building_data(b, base) for b in blocks],
+        "buildings": [building_data(b, base) for b in plain],
         "businesses": [business_data(b, base) for b in signs],
         "trees": [[round(float(v), 2) for v in (t[0], t[1] - base, t[2], t[3])] for t in trees],
         "credits": "Map data (c) OpenStreetMap contributors, ODbL. Buildings: Overture Maps Foundation, "
@@ -463,13 +508,20 @@ class Nearest:
 
 
 def side_streets(streets: dict, route_nodes, proj: Projection, points: np.ndarray, heights: np.ndarray,
-        bridge: np.ndarray, terrain: np.ndarray, layout: dict):
-    """A short stub for each street leaving the loop: centreline, heights, edges and barrier."""
+        bridge: np.ndarray, terrain: np.ndarray, layout: dict, stops=(), blocked=(), skip=(), others=(),
+        avoid=None, closed=True):
+    """A short stub for each street leaving the road: centreline, heights, edges and barrier.
+
+    The road is the loop, or the detour with closed False. Streets are followed only until they
+    reach the road or a stop (the other road's nodes), never along the road or a blocked edge (the
+    other road's), and none start at a skip node. A stub must keep clear of the stubs in others and
+    of the avoid road. Returns only the new stubs."""
     ways = streets["elements"]
     for w in ways:
         w["nodes"] = [(round(g["lat"], 7), round(g["lon"], 7)) for g in w["geometry"]]
-    on_route = set(route_nodes)
-    route_edges = {frozenset(e) for e in zip(route_nodes, route_nodes[1:] + route_nodes[:1])}
+    on_route = set(route_nodes) | set(stops)
+    pairs = zip(route_nodes, route_nodes[1:] + route_nodes[:1]) if closed else zip(route_nodes, route_nodes[1:])
+    route_edges = {frozenset(e) for e in pairs} | set(blocked)
     at_node = {}
     for wi, w in enumerate(ways):
         for k, n in enumerate(w["nodes"]):
@@ -508,6 +560,8 @@ def side_streets(streets: dict, route_nodes, proj: Projection, points: np.ndarra
     stubs = []
     taken = set()
     for node in route_nodes:
+        if node in skip:
+            continue
         for wi, k in at_node.get(node, ()):
             for step in (1, -1):
                 k2 = k + step
@@ -519,7 +573,8 @@ def side_streets(streets: dict, route_nodes, proj: Projection, points: np.ndarra
                 taken.add((node, nodes[k2]))
                 limit = STUB_MAX_MOTORWAY if ways[wi]["tags"]["highway"] == "motorway" else STUB_MAX
                 path, followed = walk(node, wi, k, step)
-                stub = make_stub(path, proj, points, heights, bridge, loop, terrain, layout, stubs, limit)
+                stub = make_stub(path, proj, points, heights, bridge, loop, terrain, layout, list(others) + stubs,
+                        limit, avoid)
                 if stub:
                     stub["name"] = ways[wi]["tags"].get("name") or ways[wi]["tags"].get("ref") or ""
                     stub["kind"] = ways[wi]["tags"]["highway"]
@@ -548,8 +603,10 @@ def sign_text(tags: list) -> str:
     return ""
 
 
-def make_stub(path, proj, points, heights, bridge, loop: Nearest, terrain, layout, others, limit=STUB_MAX):
-    """One stub along the map points from its junction, or None if it doesn't fit."""
+def make_stub(path, proj, points, heights, bridge, loop: Nearest, terrain, layout, others, limit=STUB_MAX,
+        avoid=None):
+    """One stub along the map points from its junction, or None if it doesn't fit or comes near
+    the avoid road."""
     xz = np.array([proj.to_local(lat, lon) for lat, lon in path])
     start, gap = loop.query(xz[0][0], xz[0][1], 15.0)
     if start == -1:
@@ -583,11 +640,14 @@ def make_stub(path, proj, points, heights, bridge, loop: Nearest, terrain, layou
     # Clear of the stubs already made, past the first few metres (further for a fork from the same junction).
     for o in others:
         near = Nearest(o["centre"])
-        fork = o["start"] == start
+        fork = o["start"] == start and o["loop"] is loop
         if any(near.query(x, z, 2.0 * STUB_HALF_WIDTH)[0] != -1
                 for (x, z), s in zip(centre, d) if s > (STUB_FORK if fork else ROAD_HALF_WIDTH + 6.0)):
             return None
     if not all(inside_terrain(layout, x, z, 40.0) for x, z in centre):
+        return None
+    if avoid is not None and any(avoid.query(x, z, ROAD_HALF_WIDTH + STUB_HALF_WIDTH + 2.0)[0] != -1
+            for x, z in centre):
         return None
 
     # Heights: the loop's own where the stub is on it, then the carved ground, kept gentle.
@@ -644,7 +704,7 @@ def make_stub(path, proj, points, heights, bridge, loop: Nearest, terrain, layou
     corners = [c for c in (make_corner(edges, d, forward, right, side, points, heights, loop)
             for side in (0, 1)) if c is not None]
     clear_from = max([c["reach"] for c in corners], default=ROAD_HALF_WIDTH) + 1.0
-    return {"start": start, "centre": centre, "heights": h, "edges": edges, "shoulder_from": shoulder_from,
+    return {"start": start, "loop": loop, "centre": centre, "heights": h, "edges": edges, "shoulder_from": shoulder_from,
             "barrier": barrier, "corners": corners,
             "sign_args": (centre, h, d, right, forward, loop, b, clear_from)}
 
@@ -722,7 +782,7 @@ def make_corner(edges, d, forward, right, side, points, heights, loop: Nearest):
     return {"side": side, "outer": outer, "inner": inner, "reach": d_c + reach}
 
 
-def sign_spot(centre, h, d, right, forward, loop: Nearest, b, clear_from, text):
+def sign_spot(centre, h, d, right, forward, loop: Nearest, b, clear_from, text, half_width=STUB_HALF_WIDTH):
     """Where the street's name sign stands: just past the rounded corner, off the road.
 
     The plate runs along the street, so a driver on the loop sees it face on. The whole plate
@@ -736,7 +796,7 @@ def sign_spot(centre, h, d, right, forward, loop: Nearest, b, clear_from, text):
             if d[i] < start + half or i >= b:
                 continue
             for side in (1.0, -1.0):
-                x, z = centre[i] + right[i] * side * (STUB_HALF_WIDTH + SIGN_OFFSET)
+                x, z = centre[i] + right[i] * side * (half_width + SIGN_OFFSET)
                 ends = [(x + forward[i][0] * k * half, z + forward[i][1] * k * half) for k in (-1.0, 0.0, 1.0)]
                 if all(loop.query(ex, ez, ROAD_HALF_WIDTH + margin)[0] == -1 for ex, ez in ends):
                     return (x, h[i], z, forward[i][0], forward[i][1])
@@ -789,14 +849,15 @@ def inside_polygon(polygon: np.ndarray, p) -> bool:
     return bool(np.count_nonzero(crosses & (x < at)) % 2)
 
 
-def carve_stubs(terrain: np.ndarray, layout: dict, stubs, loop: Nearest) -> np.ndarray:
+def carve_stubs(terrain: np.ndarray, layout: dict, stubs, loop: Nearest, flat_to: float = STUB_FLAT,
+        blend_to: float = STUB_BLEND) -> np.ndarray:
     """Ground near each stub brought just under it, blending back to the ground around.
 
     Ground close to the loop is only ever lowered here: raised, it would poke up through the loop's road."""
     original = terrain
     terrain = terrain.copy()
     cell, x0, z0 = layout["cell"], layout["x0"], layout["z0"]
-    reach = int(math.ceil(STUB_BLEND / cell)) + 1
+    reach = int(math.ceil(blend_to / cell)) + 1
     for stub in stubs:
         rows, cols = terrain.shape
         near = np.full(terrain.shape, np.inf)
@@ -813,7 +874,7 @@ def carve_stubs(terrain: np.ndarray, layout: dict, stubs, loop: Nearest) -> np.n
             closer = dist < block
             block[closer] = dist[closer]
             stub_h[r_lo:r_hi, c_lo:c_hi][closer] = ph
-        t = np.clip((near - STUB_FLAT) / (STUB_BLEND - STUB_FLAT), 0.0, 1.0)
+        t = np.clip((near - flat_to) / (blend_to - flat_to), 0.0, 1.0)
         weight = 1.0 - t * t * (3.0 - 2.0 * t)
         touched = weight > 0.0
         flat = stub_h - CARVE_DROP
@@ -840,6 +901,209 @@ def stub_data(stub: dict, base: float) -> dict:
         "sign": stub["sign"],
         "sign_post": [round(float(v), 3) for v in (stub["sign_post"][0], stub["sign_post"][1] - base,
                 stub["sign_post"][2], stub["sign_post"][3], stub["sign_post"][4])] if stub["sign_post"] else [],
+    }
+
+
+# Detour ---------------------------------------------------------------------------------------
+
+
+def detour_path(streets: dict):
+    """The detour's map points from the junction round and back to it, and its turns as
+    (point index, sign text) where it joins each street."""
+    ways = {w["id"]: w for w in streets["elements"]}
+    nodes, turns = [], []
+    last = None
+    for wid, a, b, text in DETOUR_WAYS:
+        g = ways[wid]["geometry"]
+        step = 1 if b >= a else -1
+        part = [(round(g[k]["lat"], 7), round(g[k]["lon"], 7)) for k in range(a, b + step, step)]
+        if nodes:
+            if nodes[-1] != part[0]:
+                sys.exit("detour way %d doesn't join the one before it" % wid)
+            part = part[1:]
+        if text != last:
+            turns.append((max(len(nodes) - 1, 0), text))
+            last = text
+        nodes += part
+    if nodes[0] != nodes[-1]:
+        sys.exit("the detour doesn't come back to its junction")
+    return nodes, turns
+
+
+def resample_open(p: np.ndarray, step: float):
+    """Even points along an open line, both ends kept. Returns the points and their distances."""
+    seg = np.linalg.norm(np.diff(p, axis=0), axis=1)
+    along = np.concatenate([[0.0], np.cumsum(seg)])
+    count = max(int(round(along[-1] / step)), 1)
+    d = np.linspace(0.0, along[-1], count + 1)
+    return np.column_stack([np.interp(d, along, p[:, 0]), np.interp(d, along, p[:, 1])]), d
+
+
+def smooth_open(p: np.ndarray, keep: int) -> np.ndarray:
+    """smooth_corners for an open line. The first and last keep points never move, so both ends
+    stay on the loop's centreline."""
+    n = len(p)
+    free = np.zeros(n, dtype=bool)
+    free[keep:n - keep] = True
+    for _ in range(3):
+        q = p.copy()
+        q[1:-1] = (p[:-2] + 2 * p[1:-1] + p[2:]) / 4.0
+        p = np.where(free[:, None], q, p)
+    for _ in range(4000):
+        r = np.minimum(turn_radius(p, 2), np.minimum(turn_radius(p, 4), turn_radius(p, 8)))
+        tight = (r < MIN_RADIUS) & free
+        if not tight.any():
+            break
+        near = tight.copy()
+        for s in range(1, 6):
+            near |= np.roll(tight, s) | np.roll(tight, -s)
+        near &= free
+        average = (np.roll(p, 1, axis=0) + np.roll(p, -1, axis=0)) / 2.0
+        p = np.where(near[:, None], p + (average - p) * 0.5, p)
+    return p
+
+
+def make_detour(nodes, turns, proj: Projection, points: np.ndarray, heights: np.ndarray, terrain: np.ndarray,
+        layout: dict) -> dict:
+    """The detour road: an open centreline from the junction and back, its heights, level edges,
+    rounded corners where both ends meet the loop, and the turns where the name signs go."""
+    loop = Nearest(points)
+    xz = np.array([proj.to_local(lat, lon) for lat, lon in nodes])
+    j, _ = loop.query(xz[0][0], xz[0][1], 15.0)
+    if j == -1:
+        sys.exit("the detour's junction is too far from the loop")
+    seg = np.linalg.norm(np.diff(xz, axis=0), axis=1)
+    along = np.concatenate([[0.0], np.cumsum(seg)])
+    # Bend both ends from the map junction onto the smoothed loop centreline.
+    shift = points[j] - xz[0]
+    pull = np.clip(1.0 - along / STUB_SHIFT, 0.0, 1.0) + np.clip(1.0 - (along[-1] - along) / STUB_SHIFT, 0.0, 1.0)
+    xz = xz + shift * pull[:, None]
+    turn_spots = [(xz[k].copy(), text) for k, text in turns]
+    centre, _ = resample_open(xz, STEP)
+    centre = smooth_open(centre, int(STUB_SHIFT / STEP))
+    centre, d = resample_open(centre, STEP)
+    total = d[-1]
+
+    # Heights: the carved ground, smoothed, blending into the loop's own where it meets the loop.
+    nearest = [loop.query(x, z, 60.0) for x, z in centre]
+    h = np.array([terrain_height(terrain, layout, x, z) + CARVE_DROP for x, z in centre])
+    window = int(HEIGHT_SMOOTH / STEP)
+    kernel = np.ones(window) / window
+    for _ in range(3):
+        padded = np.concatenate([np.full(window, h[0]), h, np.full(window, h[-1])])
+        h = np.convolve(padded, kernel, mode="same")[window:-window]
+    for i, (k, dist) in enumerate(nearest):
+        if k >= 0:
+            t = min(max((dist - (ROAD_HALF_WIDTH + 1.0)) / DETOUR_JOIN, 0.0), 1.0)
+            t = t * t * (3.0 - 2.0 * t)
+            h[i] = heights[k] * (1.0 - t) + h[i] * t
+    grade = float((np.abs(np.diff(h)) / np.maximum(np.diff(d), 1e-6)).max())
+
+    # Edges, level across. Near the loop every corner sits just under the loop's surface, as on
+    # the stubs, so the detour never rises through the loop's road.
+    forward = np.gradient(centre, axis=0)
+    forward /= np.maximum(np.linalg.norm(forward, axis=1), 1e-9)[:, None]
+    right = np.column_stack([-forward[:, 1], forward[:, 0]])
+    edges = []
+    outside = []
+    for i in range(len(centre)):
+        section = []
+        out = True
+        for side in (-1.0, 1.0):
+            x, z = centre[i] + right[i] * side * ROAD_HALF_WIDTH
+            k, dist = loop.query(x, z, 60.0)
+            y = min(h[i], heights[k] - 0.05) if dist < ROAD_HALF_WIDTH + 3.0 else h[i]
+            out = out and dist > ROAD_HALF_WIDTH + 4.5
+            section.append((x, y, z))
+        if nearest[i][1] < 3.0 * ROAD_HALF_WIDTH:
+            (lx, ly, lz), (rx, ry, rz) = section
+            cap = None
+            for t in np.linspace(0.0, 1.0, 13):
+                k, dist = loop.query(lx + (rx - lx) * t, lz + (rz - lz) * t, 60.0)
+                if k >= 0 and dist < ROAD_HALF_WIDTH + 0.5:
+                    cap = heights[k] - 0.12 if cap is None else min(cap, heights[k] - 0.12)
+            if cap is not None:
+                section = [(lx, min(ly, cap), lz), (rx, min(ry, cap), rz)]
+        edges.append(section)
+        outside.append(out)
+    open_start = next(i for i, o in enumerate(outside) if o)
+    open_end = next(i for i, o in enumerate(reversed(outside)) if o)
+
+    # Rounded corners at both ends. The end is the start of the detour driven backwards.
+    back = {"edges": [(e[1], e[0]) for e in reversed(edges)], "d": total - d[::-1],
+            "forward": -forward[::-1], "right": -right[::-1], "centre": centre[::-1], "heights": h[::-1]}
+    corners = []
+    for side in (0, 1):
+        c = make_corner(edges, d, forward, right, side, points, heights, loop)
+        if c:
+            corners.append(dict(c, end=False))
+        c = make_corner(back["edges"], back["d"], back["forward"], back["right"], side, points, heights, loop)
+        if c:
+            corners.append(dict(c, side=1 - side, end=True))
+    turn_at = [(int(np.argmin(np.linalg.norm(centre - spot, axis=1))), text) for spot, text in turn_spots]
+    away = np.array([dist > 3.0 * ROAD_HALF_WIDTH for _, dist in nearest])
+    return {"centre": centre, "heights": h, "d": d, "forward": forward, "right": right, "edges": edges,
+            "open_start": open_start, "open_end": open_end, "corners": corners, "back": back,
+            "turns": turn_at, "away": away, "grade": grade, "loop": loop}
+
+
+def detour_signs(detour: dict, loop: Nearest, roads: Nearest):
+    """Name signs: one on each end of the detour, seen from the loop at the junction, and one on
+    each street the detour turns onto, just past the turn, seen by a driver turning there."""
+    signs = []
+    ends = (("start", detour["centre"], detour["heights"], detour["d"], detour["right"], detour["forward"]),
+            ("end",) + tuple(detour["back"][k] for k in ("centre", "heights", "d", "right", "forward")))
+    for (which, centre, h, d, right, forward), (_, text) in zip(ends, (detour["turns"][0], detour["turns"][-1])):
+        reach = max([c["reach"] for c in detour["corners"] if c["end"] == (which == "end")],
+                default=ROAD_HALF_WIDTH) + 1.0
+        b = int(60.0 / STEP)
+        spot = sign_spot(centre, h, d, right, forward, loop, b, reach, text, ROAD_HALF_WIDTH)
+        if spot:
+            signs.append({"sign": text, "sign_post": spot})
+    centre, h, d = detour["centre"], detour["heights"], detour["d"]
+    for at, text in detour["turns"][1:]:
+        if text == "US 322":
+            continue  # Still the same road: the end sign names it.
+        half = (SIGN_CHAR_WIDTH * len(text) + SIGN_PLATE_PAD) / 2.0
+        spot = None
+        for i in range(at, len(centre)):
+            if d[i] < d[at] + TURN_SIGN_AHEAD:
+                continue
+            f = detour["forward"][i]
+            for side in (1.0, -1.0):
+                x, z = centre[i] + detour["right"][i] * side * (ROAD_HALF_WIDTH + SIGN_OFFSET)
+                ends_xz = [(x + f[0] * k * half, z + f[1] * k * half) for k in (-1.0, 0.0, 1.0)]
+                if all(roads.query(ex, ez, ROAD_HALF_WIDTH + 1.0)[0] == -1 for ex, ez in ends_xz):
+                    spot = (x, h[i], z, f[0], f[1])
+                    break
+            if spot or d[i] > d[at] + TURN_SIGN_AHEAD + 30.0:
+                break
+        if spot:
+            signs.append({"sign": text, "sign_post": spot})
+    return signs
+
+
+def detour_mouths(detour: dict):
+    """The detour's ends, shaped like stubs, so the loop leaves out its shoulder under them."""
+    k = int(DETOUR_JOIN / STEP)
+    return [{"edges": detour["edges"][:k], "corners": [c for c in detour["corners"] if not c["end"]]},
+            {"edges": detour["edges"][-k:], "corners": [c for c in detour["corners"] if c["end"]]}]
+
+
+def detour_data(detour: dict, base: float, cuts: dict) -> dict:
+    def post(p):
+        return [round(float(v), 3) for v in (p[0], p[1] - base, p[2], p[3], p[4])]
+
+    return {
+        "edges": [round(float(v), 3) for section in detour["edges"] for (x, y, z) in section
+                for v in (x, y - base, z)],
+        "open_start": detour["open_start"],
+        "open_end": detour["open_end"],
+        "corners": [{"side": c["side"], "end": c["end"], "reach": round(float(c["reach"]), 2),
+                "strip": [round(float(v), 2) for o, i in zip(c["outer"], c["inner"]) for p in (o, i)
+                for v in (p[0], p[1] - base, p[2])]} for c in detour["corners"]],
+        "cuts": cuts,
+        "signs": [{"sign": sg["sign"], "sign_post": post(sg["sign_post"])} for sg in detour["signs"]],
     }
 
 
@@ -951,7 +1215,8 @@ def load_footprints(cache: str, osm: dict, proj: Projection):
     return found
 
 
-def place_buildings(footprints, proj: Projection, loop: Nearest, stubs, layout: dict, terrain: np.ndarray):
+def place_buildings(footprints, proj: Projection, loop: Nearest, stubs, layout: dict, terrain: np.ndarray,
+        detour: Nearest = None):
     """Buildings near the road and clear of it, each sitting on the ground, with a style and colours.
 
     A sloped roof sits on the outline's smallest enclosing box, so its walls become that box;
@@ -977,6 +1242,9 @@ def place_buildings(footprints, proj: Projection, loop: Nearest, stubs, layout: 
         if stubs is not None:
             road_gap = min(road_gap, stubs.query(cx, cz, BUILDING_RANGE)[1])
         if math.isinf(road_gap) or not clear_of_road(ring, loop, stubs):
+            continue
+        if f["id"] == FEATURE_HOUSE and detour is not None:
+            blocks.append(feature_house(cx, cz, yaw, length, width, detour, terrain, layout))
             continue
         style = building_style(f, area, math.hypot(cx - town[0], cz - town[1]), road_gap)
         eave, ridge, roof = float(f["eave"]), float(f["ridge"]), f["roof"]
@@ -1008,6 +1276,29 @@ def place_buildings(footprints, proj: Projection, loop: Nearest, stubs, layout: 
         if landmark and "tower" in landmark:
             blocks.append(landmark_tower(landmark, proj, yaw, blocks[-1], lift))
     return blocks
+
+
+def feature_house(cx, cz, yaw, length, width, detour: Nearest, terrain, layout) -> dict:
+    """The detailed house's box: along its long side, front to the detour. RoadTrack models it."""
+    along = np.array([math.cos(yaw), math.sin(yaw)])
+    depth = width
+    if width > length:
+        along, depth = np.array([-math.sin(yaw), math.cos(yaw)]), length
+    if along[0] < 0.0:
+        along = -along  # Pointing east.
+    centre = np.array([cx, cz]) - along * FEATURE_SHIFT_WEST
+    k, _ = detour.query(centre[0], centre[1], BUILDING_RANGE)
+    front = np.array([-along[1], along[0]])
+    if np.dot(detour.points[k] - centre, front) < 0.0:
+        front = -front
+    box_yaw = math.atan2(along[1], along[0])
+    ring = box_corners(centre[0], centre[1], box_yaw, FEATURE_LENGTH, depth)
+    ground = [terrain_height(terrain, layout, x, z) for x, z in ring]
+    floor = float(np.mean(ground))
+    return {"ring": ring, "base": min(ground) - BUILDING_SINK, "eave": 3.0, "ridge": 5.0, "roof": "gable",
+            "box": (centre[0], centre[1], box_yaw, FEATURE_LENGTH, depth), "style": "house",
+            "feature": {"x": centre[0], "floor": floor, "z": centre[1], "front": [front[0], front[1]],
+                    "length": FEATURE_LENGTH, "depth": depth}}
 
 
 def landmark_tower(landmark: dict, proj: Projection, yaw: float, body: dict, lift: float) -> dict:
@@ -1290,14 +1581,15 @@ def convex_hull(pts: np.ndarray) -> np.ndarray:
     return np.array(lower[:-1] + upper[:-1])
 
 
-def place_trees(loop: Nearest, road: Nearest, layout: dict, terrain: np.ndarray, blocks):
-    """Random trees in a band either side of the loop, clear of every road and the buildings."""
-    rng = np.random.default_rng(SEED)
+def place_trees(loop: Nearest, road: Nearest, layout: dict, terrain: np.ndarray, blocks, count: int = TREE_COUNT,
+        seed: int = SEED):
+    """Random trees in a band either side of a road, clear of every road and the buildings."""
+    rng = np.random.default_rng(seed)
     pts = loop.points
     building_tree = Nearest(building_samples(blocks))
     trees = []
     tries = 0
-    while len(trees) < TREE_COUNT and tries < TREE_COUNT * 20:
+    while len(trees) < count and tries < count * 20:
         tries += 1
         i = rng.integers(len(pts))
         side = rng.choice((-1.0, 1.0))

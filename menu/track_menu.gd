@@ -9,6 +9,8 @@ const TRACKS := [
 			"scene": "res://track/ridge/ridge.tscn"},
 	{"name": "Clarion loop", "about": "Real roads round Clarion, PA: Route 68, I-80, Route 66 and Route 322. 17 km a lap.",
 			"scene": "res://track/clarion/clarion.tscn"},
+	{"name": "Clarion detour", "about": "Start just before Route 66 meets Route 322, where the detour to Ridgewood Rd turns off.",
+			"scene": "res://track/clarion/clarion.tscn", "start": "DetourSpawn"},
 ]
 
 @onready var _buttons: VBoxContainer = %Buttons
@@ -23,12 +25,12 @@ func _ready() -> void:
 		button.add_theme_font_size_override("font_size", 30)
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		button.add_theme_stylebox_override("focus", _focus_box())
-		button.pressed.connect(_start.bind(entry.scene))
+		button.pressed.connect(_start.bind(entry.scene, entry.get("start", "")))
 		_buttons.add_child(button)
 	(_buttons.get_child(0) as Button).grab_focus.call_deferred()
 
 
-func _start(track_scene: String) -> void:
+func _start(track_scene: String, start_marker: String) -> void:
 	for button in _buttons.get_children():
 		button.disabled = true
 	_loading.show()
@@ -36,6 +38,7 @@ func _start(track_scene: String) -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	Main.track_scene = load(track_scene)
+	Main.start_marker = start_marker
 	var main: Node = load(MAIN_SCENE).instantiate()
 	get_tree().root.add_child(main)
 	get_tree().current_scene = main

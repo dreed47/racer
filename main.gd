@@ -14,6 +14,9 @@ const RESET_HOLD := 1.0
 ## The track to drive. The track menu sets it before it makes this scene. Empty means the
 ## practice track.
 static var track_scene: PackedScene
+## Name of the track's start marker to begin at, for example "DetourSpawn". Empty, or a
+## marker the track doesn't have, means the normal Spawn.
+static var start_marker := ""
 
 @onready var _car: Car = $Car
 @onready var _spawn: Node3D = $Track/Spawn
@@ -34,6 +37,8 @@ func _init() -> void:
 
 
 func _ready() -> void:
+	if not start_marker.is_empty() and _track.has_node(start_marker):
+		_spawn = _track.get_node(start_marker)
 	_car.placed.connect(_snap_camera)
 	_car.global_transform = _spawn.global_transform
 	_car.reset_physics_interpolation()

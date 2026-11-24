@@ -92,6 +92,10 @@ var _x0 := 0.0
 var _z0 := 0.0
 var _width := 0
 var _depth := 0
+## How far before the detour junction the "start at the detour" choice puts the car (m).
+const DETOUR_SPAWN_BACK := 80.0
+
+var _detour_points := PackedVector3Array()  # Detour centreline, from the junction and back to it.
 
 
 func _ready() -> void:
@@ -99,8 +103,10 @@ func _ready() -> void:
 		return
 	_build_road()
 	_build_side_streets()
+	_build_detour()
 	_build_terrain()
 	_build_buildings()
+	_build_feature_house()
 	_build_businesses()
 	_build_trees()
 	_add_spawn()
@@ -148,7 +154,20 @@ func reset_transform(near: Vector3) -> Transform3D:
 		if d < best_distance:
 			best_distance = d
 			best = i
-	return global_transform * _placement(_distances[best])
+	# On the detour, face along it, the way it is driven from the junction.
+	var detour_best := -1
+	for i in _detour_points.size():
+		var d := _detour_points[i].distance_squared_to(local)
+		if d < best_distance:
+			best_distance = d
+			detour_best = i
+	if detour_best < 0:
+		return global_transform * _placement(_distances[best])
+	var last := _detour_points.size() - 1
+	var forward := _detour_points[mini(detour_best + 1, last)] - _detour_points[maxi(detour_best - 1, 0)]
+	forward.y = 0.0
+	return global_transform * Transform3D(Basis.looking_at(forward.normalized(), Vector3.UP),
+			_detour_points[detour_best] + Vector3.UP * 0.8)
 
 
 ## Ground height at a local x, z, in local space.
@@ -390,6 +409,105 @@ func _build_side_streets() -> void:
 		band_multimesh.set_instance_transform(k, cones[k].translated(Vector3.UP * 0.42))
 	_add_multimesh("Cones", cone_multimesh, BARRIER_ORANGE)
 	_add_multimesh("ConeBands", band_multimesh, BARRIER_WHITE)
+
+
+## The optional detour: an open road that leaves the loop at a junction and comes back to it.
+## Painted and shouldered like the loop, except where it overlaps the loop at both ends.
+func _build_detour() -> void:
+	var detour: Dictionary = _data.get("detour", {})
+	if detour.is_empty():
+		return
+	var flat: Array = detour.edges
+	var lefts := PackedVector3Array()
+	var rights := PackedVector3Array()
+	for k in range(0, flat.size(), 6):
+		lefts.append(Vector3(flat[k], flat[k + 1], flat[k + 2]))
+		rights.append(Vector3(flat[k + 3], flat[k + 4], flat[k + 5]))
+	var n := lefts.size()
+	var step := float(_data.get("step", 2.0))
+	var open_start := int(detour.open_start)
+	var open_end := int(detour.open_end)
+	# Reset spots: only where the detour is off the loop, so a reset on the loop stays on the loop.
+	_detour_points.clear()
+	for k in range(open_start, n - open_end):
+		_detour_points.append((lefts[k] + rights[k]) / 2.0)
+	var cut_sides := [{}, {}]
+	for k in detour.cuts.get("left", []):
+		cut_sides[0][int(k)] = true
+	for k in detour.cuts.get("right", []):
+		cut_sides[1][int(k)] = true
+	var road_faces := PackedVector3Array()
+	var shoulder_faces := PackedVector3Array()
+	var paint := SurfaceTool.new()
+	paint.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Rounded paved corners where each end meets the loop. Reach is along the detour from its own end.
+	var reach_start := [0.0, 0.0]
+	var reach_end := [0.0, 0.0]
+	for corner: Dictionary in detour.corners:
+		if corner.end:
+			reach_end[int(corner.side)] = float(corner.reach)
+		else:
+			reach_start[int(corner.side)] = float(corner.reach)
+		var strip: Array = corner.strip
+		for k in range(0, strip.size() - 6, 6):
+			var o0 := Vector3(strip[k], strip[k + 1], strip[k + 2])
+			var i0 := Vector3(strip[k + 3], strip[k + 4], strip[k + 5])
+			var o1 := Vector3(strip[k + 6], strip[k + 7], strip[k + 8])
+			var i1 := Vector3(strip[k + 9], strip[k + 10], strip[k + 11])
+			if (i0 - o0).cross(o1 - o0).y > 0.0:
+				road_faces.append_array(_quad(paint, o0, i0, o1, i1, ROAD_COLOR, 0.0))
+			else:
+				road_faces.append_array(_quad(paint, i0, o0, i1, o1, ROAD_COLOR, 0.0))
+	var down := Vector3.DOWN * SHOULDER_DROP
+	var w := CENTRE_LINE_WIDTH / 2.0
+	for k in n - 1:
+		if k > 0 and k % CHUNK_POINTS == 0:
+			_add_mesh("Detour%d" % (k / CHUNK_POINTS - 1), paint)
+			paint = SurfaceTool.new()
+			paint.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var bl := lefts[k]
+		var br := rights[k]
+		var fl := lefts[k + 1]
+		var fr := rights[k + 1]
+		road_faces.append_array(_quad(paint, bl, br, fl, fr, ROAD_COLOR, 0.0))
+		var ra := (br - bl).normalized()
+		var rb := (fr - fl).normalized()
+		var overlap := k < open_start or k >= n - 1 - open_end
+		var along := (k + 1) * step
+		var from_end := (n - 2 - k) * step
+		if not overlap:
+			var inner := EDGE_LINE_WIDTH
+			_quad(paint, bl, bl + ra * inner, fl, fl + rb * inner, PAINT_COLOR, PAINT_HEIGHT)
+			_quad(paint, br - ra * inner, br, fr - rb * inner, fr, PAINT_COLOR, PAINT_HEIGHT)
+			if k % (DASH_POINTS + GAP_POINTS) < DASH_POINTS:
+				var cb := (bl + br) / 2.0
+				var cf := (fl + fr) / 2.0
+				_quad(paint, cb - ra * w, cb + ra * w, cf - rb * w, cf + rb * w, YELLOW_COLOR, PAINT_HEIGHT)
+		for side in 2:
+			var b_edge := bl if side == 0 else br
+			var f_edge := fl if side == 0 else fr
+			var out_b: Vector3 = ra * (SHOULDER_WIDTH if side == 1 else -SHOULDER_WIDTH)
+			var out_f: Vector3 = rb * (SHOULDER_WIDTH if side == 1 else -SHOULDER_WIDTH)
+			var in_corner: bool = along <= reach_start[side] or from_end <= reach_end[side]
+			if overlap or in_corner:
+				# Near the loop the edge can sit a little above the ground; a grass skirt hides the gap.
+				if not in_corner:
+					_wall(paint, b_edge + Vector3.DOWN * SKIRT_DEPTH, f_edge + Vector3.DOWN * SKIRT_DEPTH,
+							SKIRT_DEPTH, SHOULDER_COLOR)
+				continue
+			if cut_sides[side].has(k):
+				continue
+			if side == 0:
+				shoulder_faces.append_array(_quad(paint, b_edge + out_b + down, b_edge, f_edge + out_f + down,
+						f_edge, SHOULDER_COLOR, -0.02))
+			else:
+				shoulder_faces.append_array(_quad(paint, b_edge, b_edge + out_b + down, f_edge,
+						f_edge + out_f + down, SHOULDER_COLOR, -0.02))
+	for sign_data: Dictionary in detour.signs:
+		_add_name_sign(paint, sign_data)
+	_add_mesh("DetourEnd", paint)
+	_add_body("Detour", road_faces, {"grip": road_grip, "rolling_resistance": 0.0})
+	_add_body("DetourShoulders", shoulder_faces, GRASS)
 
 
 ## Three barricades across one stub, cones in front of them, a sign, and one solid box
@@ -680,6 +798,16 @@ func _build_buildings() -> void:
 	_add_body("Buildings", faces, SOLID)
 
 
+## The one detailed house on the detour. See FeatureHouse.
+func _build_feature_house() -> void:
+	var data: Dictionary = _data.get("feature_house", {})
+	if data.is_empty():
+		return
+	var house := FeatureHouse.new()
+	add_child(house)
+	house.build(data, self, _detour_points, _half)
+
+
 ## One building: walls round its outline up to the eaves, then a flat, gable or hip roof.
 ## Heights in the data are above the building's base.
 func _add_building(paint: SurfaceTool, faces: PackedVector3Array, b: Dictionary) -> void:
@@ -928,3 +1056,15 @@ func _add_spawn() -> void:
 	spawn.name = "Spawn"
 	spawn.transform = _placement(start_distance - spawn_back)
 	add_child(spawn)
+	if _detour_points.is_empty():
+		return
+	# A second start just before the junction where the detour leaves, for the menu's
+	# "start at the detour" choice. The AI grid and the lap start stay at Spawn.
+	var best := 0
+	for i in _points.size():
+		if _points[i].distance_squared_to(_detour_points[0]) < _points[best].distance_squared_to(_detour_points[0]):
+			best = i
+	var detour_spawn := Marker3D.new()
+	detour_spawn.name = "DetourSpawn"
+	detour_spawn.transform = _placement(_distances[best] - DETOUR_SPAWN_BACK)
+	add_child(detour_spawn)
