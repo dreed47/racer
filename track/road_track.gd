@@ -96,6 +96,7 @@ var _depth := 0
 const DETOUR_SPAWN_BACK := 80.0
 
 var _detour_points := PackedVector3Array()  # Detour centreline, from the junction and back to it.
+var _detour_line := PackedVector3Array()  # The same, with the ends where it overlaps the loop.
 
 
 func _ready() -> void:
@@ -110,6 +111,15 @@ func _ready() -> void:
 	_build_businesses()
 	_build_trees()
 	_add_spawn()
+
+
+func side_roads() -> Array[PackedVector3Array]:
+	if _detour_line.is_empty():
+		return []
+	var world := PackedVector3Array()
+	for p in _detour_line:
+		world.append(global_transform * p)
+	return [world]
 
 
 func lap_length() -> float:
@@ -429,8 +439,12 @@ func _build_detour() -> void:
 	var open_end := int(detour.open_end)
 	# Reset spots: only where the detour is off the loop, so a reset on the loop stays on the loop.
 	_detour_points.clear()
-	for k in range(open_start, n - open_end):
-		_detour_points.append((lefts[k] + rights[k]) / 2.0)
+	_detour_line.clear()
+	for k in n:
+		var centre := (lefts[k] + rights[k]) / 2.0
+		_detour_line.append(centre)
+		if k >= open_start and k < n - open_end:
+			_detour_points.append(centre)
 	var cut_sides := [{}, {}]
 	for k in detour.cuts.get("left", []):
 		cut_sides[0][int(k)] = true

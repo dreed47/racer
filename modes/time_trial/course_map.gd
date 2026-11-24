@@ -1,7 +1,8 @@
 class_name CourseMap
 extends CanvasLayer
 ## Small map of the track in the top-right corner, north up, so the shape stays the same and
-## you learn it. Shows you as a white arrow, the AI car as a yellow dot and the start line.
+## you learn it. A detour off the lap shows as a thinner road. Shows you as a white arrow,
+## the AI car as a yellow dot and the start line.
 ## N or D-pad left turns it on and off.
 
 ## Sent when the map is turned on or off.
@@ -31,6 +32,8 @@ const START := Color(0.95, 0.15, 0.1)
 var shown := true
 ## Track outline in map pixels, for tests.
 var outline := PackedVector2Array()
+## Roads off the lap (a detour), in map pixels, drawn thinner than the lap.
+var side_lines: Array[PackedVector2Array] = []
 
 var _canvas: Control
 var _origin := Vector2.ZERO
@@ -72,6 +75,7 @@ func to_map(where: Vector3) -> Vector2:
 
 func _build_outline() -> void:
 	outline.clear()
+	side_lines.clear()
 	if track == null or track.lap_length() <= 0.0:
 		return
 	var flat := PackedVector2Array()
@@ -80,11 +84,21 @@ func _build_outline() -> void:
 		var p := track.point_at(d)
 		flat.append(Vector2(p.x, p.z))
 		d += STEP
+	var sides: Array[PackedVector2Array] = []
+	for road in track.side_roads():
+		var line := PackedVector2Array()
+		for p in road:
+			line.append(Vector2(p.x, p.z))
+		sides.append(line)
 	var low := flat[0]
 	var high := flat[0]
 	for p in flat:
 		low = low.min(p)
 		high = high.max(p)
+	for line in sides:
+		for p in line:
+			low = low.min(p)
+			high = high.max(p)
 	var span := high - low
 	_scale = (SIZE - 2.0 * PADDING) / maxf(maxf(span.x, span.y), 1.0)
 	# Centre the track in the box.
@@ -92,13 +106,22 @@ func _build_outline() -> void:
 	for p in flat:
 		outline.append(_origin + p * _scale)
 	outline.append(outline[0])
+	for line in sides:
+		var mapped := PackedVector2Array()
+		for p in line:
+			mapped.append(_origin + p * _scale)
+		side_lines.append(mapped)
 
 
 func _draw_map() -> void:
 	_canvas.draw_rect(Rect2(Vector2.ZERO, Vector2(SIZE, SIZE)), BACKGROUND)
 	if outline.size() < 2:
 		return
+	for line in side_lines:
+		_canvas.draw_polyline(line, ROAD_EDGE, 11.0, true)
 	_canvas.draw_polyline(outline, ROAD_EDGE, 15.0, true)
+	for line in side_lines:
+		_canvas.draw_polyline(line, ROAD, 5.5, true)
 	_canvas.draw_polyline(outline, ROAD, 9.0, true)
 	_draw_start()
 	if ai != null and ai.active and ai.car != null:

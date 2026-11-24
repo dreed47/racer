@@ -262,6 +262,8 @@ func _check_detour() -> void:
 	var space := t.get_world_3d().direct_space_state
 	var points: PackedVector3Array = t._detour_points
 	_check(points.size() > 100, "detour road exists (%d points)" % points.size())
+	_check(t.side_roads().size() == 1 and t.side_roads()[0].size() > points.size(),
+			"course map gets the detour, ends included")
 	if points.size() < 2:
 		return
 	var first := t.to_global(points[0])

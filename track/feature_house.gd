@@ -6,6 +6,10 @@ extends Node3D
 ## local z points out of the front, y is up from the floor.
 ## Two simple figures, the owners, stand by the door and wave.
 
+## Driveway centre (along the house, x), width and height above the ground, in metres.
+const DRIVE_X := -6.3
+const DRIVE_WIDTH := 6.2
+const DRIVE_LIFT := 0.06
 const SKIN := Color(0.93, 0.76, 0.64)
 const PANTS := Color(0.2, 0.24, 0.34)
 const SHOES := Color(0.15, 0.13, 0.12)
@@ -249,16 +253,7 @@ func _roof() -> void:
 
 
 func _yard(road_points: PackedVector3Array, road_half_width: float) -> void:
-	# The driveway runs from the garage to the road's edge.
-	var drive_end := _h + 8.0
-	var best := INF
-	for p in road_points:
-		var local := transform.affine_inverse() * p
-		if absf(local.x + 6.3) < 4.0 and local.z > _h and local.z < best:
-			best = local.z
-	if best < INF:
-		drive_end = best - road_half_width + 0.5
-	_ground_strip(Vector2(-6.3, _h), Vector2(-6.3, drive_end), 6.2, ASPHALT, 0.04)
+	_driveway(road_points, road_half_width)
 	# Front walk from the porch steps round to the driveway.
 	_ground_strip(Vector2(0.8, _h + 0.2), Vector2(0.8, _h + 2.0), 1.0, CONCRETE, 0.05)
 	_ground_strip(Vector2(1.3, _h + 1.95), Vector2(-3.2, _h + 2.25), 1.0, CONCRETE, 0.05)
@@ -288,6 +283,57 @@ func _yard(road_points: PackedVector3Array, road_half_width: float) -> void:
 func _ground(x: float, z: float) -> float:
 	var world := transform * Vector3(x, 0.0, z)
 	return _track.ground_height(world.x, world.z) - transform.origin.y
+
+
+## The driveway: from the garage straight out to the road's edge line, its end cut to the road's
+## angle. Near the road it rises with the grass shoulder (which sits above the ground), so the
+## shoulder never hides it, and it meets the road at the road's own height.
+func _driveway(road_points: PackedVector3Array, road_half_width: float) -> void:
+	var road := PackedVector3Array()
+	for p in road_points:
+		var local := transform.affine_inverse() * p
+		if Vector2(local.x, local.z).length() < 80.0:  # Only the road in front of the house.
+			road.append(local)
+	var columns := 6
+	var ends: Array[Vector2] = []  # For each column across the drive: z of its end, road height there.
+	for c in columns + 1:
+		var x := DRIVE_X - DRIVE_WIDTH / 2.0 + DRIVE_WIDTH * c / columns
+		ends.append(_road_edge(road, x, road_half_width))
+	var rows := maxi(1, ceili((ends[columns / 2].x - _h) / 0.75))
+	var grid: Array[PackedVector3Array] = []
+	for c in columns + 1:
+		var x := DRIVE_X - DRIVE_WIDTH / 2.0 + DRIVE_WIDTH * c / columns
+		var line := PackedVector3Array()
+		for r in rows + 1:
+			var z := lerpf(_h, ends[c].x, float(r) / rows)
+			var y := _ground(x, z) + DRIVE_LIFT
+			if not is_nan(ends[c].y):
+				# Shoulder slope (0.27 m over 4 m), carried on down until it meets the ground.
+				y = maxf(y, ends[c].y + DRIVE_LIFT - (ends[c].x - z) * 0.0675)
+			line.append(Vector3(x, y, z))
+		grid.append(line)
+	for c in columns:
+		for r in rows:
+			_quad(grid[c][r], grid[c + 1][r], grid[c + 1][r + 1], grid[c][r + 1], Vector3.UP, ASPHALT)
+
+
+## Where a line straight out from the house at x first reaches the road's edge: (z, road height).
+## Height is NAN if no road is near, and z is then a short default.
+func _road_edge(road: PackedVector3Array, x: float, half: float) -> Vector2:
+	var z := _h
+	while z < _h + 60.0:
+		var here := Vector2(x, z)
+		for k in road.size() - 1:
+			var a := Vector2(road[k].x, road[k].z)
+			var b := Vector2(road[k + 1].x, road[k + 1].z)
+			var ab := b - a
+			if ab.length_squared() > 25.0:
+				continue  # A gap where road far from the house was left out.
+			var t := clampf((here - a).dot(ab) / maxf(ab.length_squared(), 1e-6), 0.0, 1.0)
+			if here.distance_to(a + ab * t) <= half - 0.05:
+				return Vector2(z, lerpf(road[k].y, road[k + 1].y, t))
+		z += 0.1
+	return Vector2(_h + 8.0, NAN)
 
 
 ## A flat strip lying on the ground from a to b (x, z), width wide.

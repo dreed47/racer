@@ -47,3 +47,9 @@ func gate_half_width() -> float:
 ## Where a reset puts a car that is now at "near", in world space. Most tracks use the start.
 func reset_transform(_near: Vector3) -> Transform3D:
 	return ($Spawn as Node3D).global_transform
+
+
+## Roads off the lap that can be driven too, such as a detour, as centrelines in world space.
+## The course map draws them. Most tracks have none.
+func side_roads() -> Array[PackedVector3Array]:
+	return []
