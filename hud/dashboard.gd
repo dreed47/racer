@@ -5,6 +5,8 @@ extends CanvasLayer
 ## bars for the brake and throttle pedals.
 
 ## Dial radius, gap between the two dial centres and gap to the bottom of the screen, in pixels.
+## SCALE draws that layout 50% bigger. The pivot stays on the bottom edge, so they grow up.
+const SCALE := 1.5
 const RADIUS := 150.0
 const SPACING := 470.0
 const MARGIN := 24.0
@@ -46,6 +48,8 @@ func _ready() -> void:
 	_canvas.offset_right = SPACING / 2.0 + RADIUS
 	_canvas.offset_top = -(2.0 * RADIUS + MARGIN)
 	_canvas.offset_bottom = -MARGIN
+	_canvas.pivot_offset = Vector2(SPACING / 2.0 + RADIUS, 2.0 * RADIUS)
+	_canvas.scale = Vector2(SCALE, SCALE)
 	_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_canvas.draw.connect(_draw_gauges)
 	add_child(_canvas)

@@ -41,13 +41,15 @@ func _check_layout() -> void:
 	_check(screen.encloses(area), "gauges fit on a 1920 x 1080 screen (%s)" % area)
 	_check(absf(area.get_center().x - 960.0) < 1.0, "gauges are centred")
 	_check(area.end.y > 1000.0, "gauges sit at the bottom")
+	_check(is_equal_approx(area.size.y, Dashboard.RADIUS * 2.0 * Dashboard.SCALE),
+			"gauges are 50%% bigger (%.0f px tall)" % area.size.y)
 	var map := _main.get_node("CourseMap") as CourseMap
 	_check(not area.intersects(_on_screen(map._canvas, size)), "gauges clear the map")
-	# The grip display has no size of its own: it draws four tires and the TC and ABS labels
-	# up from its corner. Allow 400 px across for them.
+	# The grip display has no size of its own: it draws four tires and the TC, ABS and SPIN
+	# labels up from its corner. 240 px covers that cluster.
 	var grip: Control = _main.get_node("GripDisplay")._canvas
 	var corner := _on_screen(grip, size).position
-	_check(not area.intersects(Rect2(corner.x, corner.y, 400.0, size.y - corner.y)), "gauges clear the grip display")
+	_check(not area.intersects(Rect2(corner.x, corner.y, 240.0, size.y - corner.y)), "gauges clear the grip display")
 
 
 ## Where an anchored control would sit on a screen of the given size.
@@ -56,7 +58,15 @@ func _on_screen(control: Control, size: Vector2) -> Rect2:
 			+ Vector2(control.offset_left, control.offset_top)
 	var bottom_right := Vector2(control.anchor_right, control.anchor_bottom) * size \
 			+ Vector2(control.offset_right, control.offset_bottom)
-	return Rect2(top_left, bottom_right - top_left)
+	var rect := Rect2(top_left, bottom_right - top_left)
+	var s := control.scale
+	if s.is_equal_approx(Vector2.ONE):
+		return rect
+	# Scale grows around pivot_offset, which is in the control's own pixels.
+	var pivot := top_left + control.pivot_offset
+	var grown_top_left := pivot + (rect.position - pivot) * s
+	var grown_bottom_right := pivot + (rect.end - pivot) * s
+	return Rect2(grown_top_left, grown_bottom_right - grown_top_left)
 
 
 func _check_scales() -> void:
