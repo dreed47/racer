@@ -72,6 +72,15 @@ TREE_NEAR = 22.0
 TREE_FAR = 260.0
 TREE_BUILDING_CLEAR = 5.0  # Tree trunks at least this far from any wall.
 SEED = 322
+KIT_FILL = 0.6  # A house the HouseKit models fills at least this much of its box...
+KIT_MAX = 28.0  # ...is no longer than this...
+KIT_MIN_FRONT = 6.0  # ...no narrower than this across its front...
+KIT_MIN_DEPTH = 5.5  # ...and no shallower than this.
+TWO_STOREY_EAVE = 5.0  # Lidar eaves this high mean two storeys.
+FLOOR_LIFT = 0.3  # A modelled house's ground floor sits this far over the ground at its front.
+YARD_OUT = 3.0  # The front steps and garage apron come down to the ground this far out.
+FLOOR_BURY = 2.6  # On a slope, its back wall may sink this far into the hill, but no further.
+FRONT_SAMPLE = 4.0  # Spacing of the street points a modelled house turns to face.
 # Buildings the lidar fit gets wrong, by Overture id. The courthouse's clock tower pulled its
 # fitted hip roof up to the tower's height, so its body and tower come from the lidar points by
 # hand: a hip roof from 16 to 24 m (a raised basement and three floors), and a 9 m square brick
@@ -195,12 +204,13 @@ def main() -> None:
     if feature is None:
         sys.exit("the detour's feature house is missing from the building outlines")
     signs = place_businesses(cache, plain, proj, loop, streets, heights, terrain, layout)
+    houses, plain = kit_houses(plain, streets, proj, both, stub_tree, terrain, layout)
     trees = place_trees(loop, road_tree, layout, terrain, blocks)
     trees += place_trees(Nearest(detour["centre"]), road_tree, layout, terrain, blocks,
             int(TREE_COUNT * len(detour["centre"]) / len(points)), SEED + 1)
-    print("terrain %d x %d, %d buildings (%d sloped roofs), %d business signs, %d trees" % (
+    print("terrain %d x %d, %d buildings (%d sloped roofs, %d modelled houses), %d business signs, %d trees" % (
             layout["width"], layout["depth"], len(blocks), sum(1 for b in blocks if b["roof"] != "flat"),
-            len(signs), len(trees)))
+            len(houses), len(signs), len(trees)))
 
     (terrain - base).astype("<f4").tofile(os.path.join(out_dir, "terrain.bin"))
     layout["file"] = "terrain.bin"
@@ -221,6 +231,7 @@ def main() -> None:
                 for k, v in feature.items()},
         "terrain": layout,
         "buildings": [building_data(b, base) for b in plain],
+        "houses": [house_data(h, base) for h in houses],
         "businesses": [business_data(b, base) for b in signs],
         "trees": [[round(float(v), 2) for v in (t[0], t[1] - base, t[2], t[3])] for t in trees],
         "credits": "Map data (c) OpenStreetMap contributors, ODbL. Buildings: Overture Maps Foundation, "
@@ -1248,6 +1259,7 @@ def place_buildings(footprints, proj: Projection, loop: Nearest, stubs, layout: 
             continue
         style = building_style(f, area, math.hypot(cx - town[0], cz - town[1]), road_gap)
         eave, ridge, roof = float(f["eave"]), float(f["ridge"]), f["roof"]
+        lidar_eave = eave
         landmark = LANDMARKS.get(f["id"])
         if landmark:
             eave, ridge = landmark["eave"], landmark["ridge"]
@@ -1272,7 +1284,8 @@ def place_buildings(footprints, proj: Projection, loop: Nearest, stubs, layout: 
             wall, top = landmark["wall"], landmark["top"]
         blocks.append({"ring": ring, "base": low - BUILDING_SINK, "eave": eave + lift, "ridge": ridge + lift,
                 "roof": roof, "ridge_along": f["ridge_along"], "box": (cx, cz, yaw, length, width),
-                "style": style, "wall": wall, "top": top, "area": area})
+                "style": style, "wall": wall, "top": top, "area": area, "fill": fill,
+                "lidar_eave": lidar_eave, "landmark": bool(landmark)})
         if landmark and "tower" in landmark:
             blocks.append(landmark_tower(landmark, proj, yaw, blocks[-1], lift))
     return blocks
@@ -1382,6 +1395,78 @@ def building_data(b: dict, base: float) -> dict:
     return data
 
 
+# Modelled houses ------------------------------------------------------------------------------
+
+
+def kit_houses(blocks, streets: dict, proj: Projection, roads: Nearest, stubs, terrain: np.ndarray, layout: dict):
+    """Split off the houses that RoadTrack's HouseKit models in detail, each turned to face its
+    nearest street, from the rest, which stay plain buildings.
+
+    A house keeps its plain building when it holds a business sign, is a landmark, fills too
+    little of its box or is too big or small for the kit's styles, or when its box would reach
+    a road. A modelled house's outline becomes its box, so trees keep clear of all of it.
+    """
+    fronts = street_points(streets, proj, roads.points)
+    rng = np.random.default_rng(SEED + 7)
+    houses, rest = [], []
+    for b in blocks:
+        cx, cz, yaw, length, width = b["box"]
+        box = box_corners(cx, cz, yaw, length, width)
+        if (b["style"] != "house" or b.get("business") or b.get("landmark") or b["fill"] < KIT_FILL
+                or max(length, width) > KIT_MAX or min(length, width) < KIT_MIN_DEPTH
+                or not clear_of_road(box, roads, stubs)):
+            rest.append(b)
+            continue
+        centre = np.array([cx, cz])
+        k, _ = fronts.query(cx, cz, 400.0)
+        toward = fronts.points[k] - centre if k >= 0 else np.array([0.0, 1.0])
+        toward /= max(np.linalg.norm(toward), 1e-9)
+        u = np.array([math.cos(yaw), math.sin(yaw)])
+        v = np.array([-math.sin(yaw), math.cos(yaw)])
+        # A face across u is width wide, one across v is length wide. Wide fronts win a near tie.
+        sides = [(n, w, d) for axis, w, d in ((u, width, length), (v, length, width)) for n in (axis, -axis)]
+        front, front_width, depth = max(sides, key=lambda s: float(np.dot(s[0], toward)) + (0.15 if s[1] >= s[2] else 0.0))
+        if front_width < KIT_MIN_FRONT:
+            rest.append(b)
+            continue
+        ground = [terrain_height(terrain, layout, x, z) for x, z in box]
+        # The floor follows the ground at the front, where the door and garage meet the yard, so a
+        # house on a slope sits into the hill at the back rather than on a tall bare wall in front.
+        along = np.array([front[1], -front[0]])
+        face = centre + front * depth / 2.0
+        front_ground = [terrain_height(terrain, layout, *(face + along * t * front_width / 2.0 + front * out))
+                for t in (-0.8, 0.0, 0.8) for out in (0.0, 1.5)]
+        floor = max(float(np.mean(front_ground)) + FLOOR_LIFT, max(ground) - FLOOR_BURY)
+        # The yard a few metres out, where the front steps and garage apron come down to.
+        yard = float(np.mean([terrain_height(terrain, layout, *(face + along * t * front_width / 2.0 + front * YARD_OUT))
+                for t in (-0.6, 0.0, 0.6)]))
+        b["ring"] = box
+        houses.append({"x": cx, "z": cz, "front": front, "width": front_width, "depth": depth,
+                "floor": floor, "foot": min(ground + front_ground) - BUILDING_SINK, "yard": yard,
+                "storeys": 2 if b["lidar_eave"] >= TWO_STOREY_EAVE else 1, "seed": int(rng.integers(1 << 30))})
+    return houses, rest
+
+
+def street_points(streets: dict, proj: Projection, extra: np.ndarray) -> Nearest:
+    """Points every FRONT_SAMPLE along every mapped street, plus the drawn roads' own points."""
+    points = [extra]
+    for way in streets["elements"]:
+        line = np.array([proj.to_local(n["lat"], n["lon"]) for n in way["geometry"]])
+        for a, b in zip(line[:-1], line[1:]):
+            steps = max(1, int(math.ceil(np.linalg.norm(b - a) / FRONT_SAMPLE)))
+            points.append(a + (b - a) * np.linspace(0.0, 1.0, steps, endpoint=False)[:, None])
+    return Nearest(np.vstack(points))
+
+
+def house_data(h: dict, base: float) -> dict:
+    return {"x": round(float(h["x"]), 2), "z": round(float(h["z"]), 2),
+            "front": [round(float(v), 4) for v in h["front"]],
+            "width": round(float(h["width"]), 2), "depth": round(float(h["depth"]), 2),
+            "floor": round(h["floor"] - base, 2), "foot": round(h["foot"] - base, 2),
+            "yard": round(h["yard"] - base, 2),
+            "storeys": h["storeys"], "seed": h["seed"]}
+
+
 # Business signs -------------------------------------------------------------------------------
 
 
@@ -1405,6 +1490,7 @@ def place_businesses(cache: str, blocks, proj: Projection, loop: Nearest, street
         if block is None:
             print("no building near %s, so no sign" % biz["sign"])
             continue
+        block["business"] = True
         centre = block["ring"].mean(axis=0)
         street = address_street(streets, biz.get("address", ""), proj, loop, centre)
         middle, out, edge = facing_wall(block["ring"], street or loop)

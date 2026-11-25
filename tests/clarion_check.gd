@@ -203,7 +203,9 @@ func _check_buildings() -> void:
 	var space := t.get_world_3d().direct_space_state
 	var list: Array = t._data.get("buildings", [])
 	var mesh := t.find_child("BuildingMeshes", true, false) as MeshInstance3D
-	_check(list.size() > 500, "buildings in town (%d)" % list.size())
+	var houses: Array = t._data.get("houses", [])
+	_check(list.size() > 300 and list.size() + houses.size() > 1200,
+			"buildings in town (%d, plus %d houses)" % [list.size(), houses.size()])
 	_check(mesh != null and mesh.mesh.get_faces().size() > list.size() * 12, "every building drawn")
 	var odd := 0
 	var sloped := 0
@@ -234,6 +236,8 @@ func _check_buildings() -> void:
 	# A few outlines are L or U shaped, so the middle can be outside them.
 	_check(roof_misses < list.size() / 50, "buildings are solid from above (%d misses)" % roof_misses)
 
+	_check_houses(houses)
+
 	var signs: Array = t._data.get("businesses", [])
 	var holder := t.get_node_or_null("BusinessSigns")
 	var labels := holder.get_child_count() if holder != null else 0
@@ -255,6 +259,45 @@ func _check_buildings() -> void:
 			"a sign for each listed business (%d of %d)" % [signs.size(), listed.size()])
 	_check(labels == signs.size() + poles * 2, "business names on walls and both sides of road signs (%d)" % labels)
 	_check(on_road == 0, "no business sign on the road (%d)" % on_road)
+
+
+## Modelled houses: drawn in all six styles, solid, off the road, and sitting on the ground.
+func _check_houses(houses: Array) -> void:
+	var t := _track
+	var space := t.get_world_3d().direct_space_state
+	var kit := t.find_child("Houses", true, false) as HouseKit
+	_check(houses.size() > 800, "modelled houses (%d)" % houses.size())
+	var tris := 0
+	if kit != null:
+		for part in kit.get_children():
+			tris += (part as MeshInstance3D).mesh.get_faces().size() / 3
+	_check(kit != null and tris > houses.size() * 100 and tris < houses.size() * 800,
+			"every house drawn (%d triangles, %d each)" % [tris, tris / maxi(1, houses.size())])
+	var styles: Dictionary = kit.styles_built if kit != null else {}
+	_check(styles.size() == 6, "all six house styles used (%s)" % styles)
+	var misses := 0
+	var on_road := 0
+	var floating := 0
+	for k in houses.size():
+		var h: Dictionary = houses[k]
+		if float(h.foot) > float(h.floor) or float(h.floor) - float(h.foot) > 6.0:
+			floating += 1
+		for p in t._points:
+			if Vector2(p.x - float(h.x), p.z - float(h.z)).length() < t._half + 2.0:
+				on_road += 1
+				break
+		if k % 5 != 0:
+			continue
+		var from := t.to_global(Vector3(float(h.x), float(h.floor) + 30.0, float(h.z)))
+		var query := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 40.0)
+		query.exclude = [_car.get_rid()]
+		var hit := space.intersect_ray(query)
+		if hit.is_empty() or String(hit.collider.name) != "Buildings" \
+				or hit.position.y < t.to_global(Vector3(0, float(h.floor) + 2.0, 0)).y:
+			misses += 1
+	_check(misses == 0, "houses are solid from above (%d misses)" % misses)
+	_check(on_road == 0, "no house on the loop's road (%d)" % on_road)
+	_check(floating == 0, "houses stand on the ground (%d odd)" % floating)
 
 
 func _check_detour() -> void:

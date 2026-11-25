@@ -1,8 +1,8 @@
 class_name CourseMap
 extends CanvasLayer
 ## Small map of the track in the top-right corner, north up, so the shape stays the same and
-## you learn it. A detour off the lap shows as a thinner road. Shows you as a white arrow,
-## the AI car as a yellow dot and the start line.
+## you learn it. A detour off the lap shows as a thinner road. Shows you as a yellow arrow,
+## the AI car as a blue dot and the start line.
 ## N or D-pad left turns it on and off.
 
 ## Sent when the map is turned on or off.
@@ -20,8 +20,8 @@ const STEP := 5.0
 const ROAD := Color(0.85, 0.85, 0.85)
 const ROAD_EDGE := Color(0.1, 0.1, 0.1, 0.9)
 const BACKGROUND := Color(0.0, 0.0, 0.0, 0.5)
-const YOU := Color.WHITE
-const AI := Color(1.0, 0.85, 0.1)
+const YOU := Color(1.0, 0.85, 0.1)
+const AI := Color(0.3, 0.75, 1.0)
 const START := Color(0.95, 0.15, 0.1)
 
 @export var track: Track

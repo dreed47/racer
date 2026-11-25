@@ -209,9 +209,9 @@ Two dials sit at the bottom centre of the screen.
 A map of the track sits in the top-right corner so you can see where you are and which turns come next.
 
 - North is always up, so the track keeps the same shape and you learn it.
-- You're the white arrow. It points the way your car faces.
+- You're the yellow arrow. It points the way your car faces.
 - The red mark is the start line.
-- The AI car shows as a yellow dot while the AI is on.
+- The AI car shows as a blue dot while the AI is on.
 - N or D-pad left turns the map on and off. A note on screen says which.
 
 ## Ghost car

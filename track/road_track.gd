@@ -795,20 +795,27 @@ func _build_terrain() -> void:
 
 func _build_buildings() -> void:
 	var list: Array = _data.get("buildings", [])
-	if list.is_empty():
+	var houses: Array = _data.get("houses", [])
+	if list.is_empty() and houses.is_empty():
 		return
-	var paint := SurfaceTool.new()
-	paint.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var faces := PackedVector3Array()
-	for b: Dictionary in list:
-		_add_building(paint, faces, b)
-	var mesh_instance := MeshInstance3D.new()
-	mesh_instance.name = "BuildingMeshes"
-	mesh_instance.mesh = paint.commit()
-	var material := ShaderMaterial.new()
-	material.shader = BUILDING_SHADER
-	mesh_instance.material_override = material
-	add_child(mesh_instance)
+	if not list.is_empty():
+		var paint := SurfaceTool.new()
+		paint.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for b: Dictionary in list:
+			_add_building(paint, faces, b)
+		var mesh_instance := MeshInstance3D.new()
+		mesh_instance.name = "BuildingMeshes"
+		mesh_instance.mesh = paint.commit()
+		var material := ShaderMaterial.new()
+		material.shader = BUILDING_SHADER
+		mesh_instance.material_override = material
+		add_child(mesh_instance)
+	if not houses.is_empty():
+		# The modelled houses. See HouseKit.
+		var kit := HouseKit.new()
+		faces.append_array(kit.build(houses))
+		add_child(kit)
 	_add_body("Buildings", faces, SOLID)
 
 
